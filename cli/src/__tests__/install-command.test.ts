@@ -11,6 +11,7 @@ import {
   resolveGitInstallWorkspacePackages,
   resolveNpmInstallRequest,
   runCommandWithDiagnostics,
+  stageGitInstallSkills,
 } from "../commands/install.js";
 import { uninstallCommand } from "../commands/uninstall.js";
 import { resolvePaperclipInstanceId } from "../config/home.js";
@@ -111,6 +112,8 @@ describe("managed install commands", () => {
       if (file === "curl") { fs.writeFileSync(args[args.indexOf("--output") + 1], "archive"); return { stdout: "", stderr: "" }; }
       if (file === "tar") {
         const checkout = args[args.indexOf("-C") + 1];
+        fs.mkdirSync(path.join(checkout, "skills", "sample"), { recursive: true });
+        fs.writeFileSync(path.join(checkout, "skills", "sample", "SKILL.md"), "sample\n");
         const packages = [
           { dir: "packages/shared", name: "@paperclipai/shared", packageJson: { name: "@paperclipai/shared", version: "0.3.1" } },
           { dir: "packages/db", name: "@paperclipai/db", packageJson: { name: "@paperclipai/db", version: "0.3.1", dependencies: { "@paperclipai/shared": "workspace:*" }, bundleDependencies: ["embedded-postgres"] } },
@@ -210,6 +213,18 @@ describe("managed install commands", () => {
       "@paperclipai/db",
       "@paperclipai/server",
     ]);
+  });
+
+  it("stages release skills for git-install packages", () => {
+    const checkout = path.join(root, "checkout-skills");
+    fs.mkdirSync(path.join(checkout, "skills", "sample"), { recursive: true });
+    fs.writeFileSync(path.join(checkout, "skills", "sample", "SKILL.md"), "sample\n");
+
+    stageGitInstallSkills(checkout);
+
+    for (const packageDir of ["server", "packages/adapters/claude-local", "packages/adapters/codex-local"]) {
+      expect(fs.readFileSync(path.join(checkout, packageDir, "skills", "sample", "SKILL.md"), "utf8")).toBe("sample\n");
+    }
   });
 
   it("includes child-process stderr in command failures", async () => {
