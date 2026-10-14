@@ -6,6 +6,7 @@ import { externalConversationStateSql } from "../slack-conversation-state.js";
 import { githubBotConnectionIdsForRun } from "../chat-github-tools.js";
 import { isBrowserUseConnection } from "../browser-use-client.js";
 import { explicitOperatorRunIdentity } from "../run-identity.js";
+import { routeRuntimeMcpUrl } from "../runtime-mcp-routing.js";
 import {
   type DurableChatWakeupRequest,
 } from "../durable-chat-wakeup.js";
@@ -1220,7 +1221,10 @@ export async function buildPaperclipRuntimeMcpServers(input: {
   return [
     {
       name: ASSIGNED_MCP_SERVER_NAME,
-      url: `${paperclipApiBaseUrl()}/mcp/gateways/${gateway!.gatewayPublicId}`,
+      url: routeRuntimeMcpUrl(
+        `${paperclipApiBaseUrl()}/mcp/gateways/${gateway!.gatewayPublicId}`,
+        `gateways/${gateway!.gatewayPublicId}`,
+      ),
       token: token.token,
       connectionId: `assignment:${assignmentDigest}`,
     },
@@ -1260,7 +1264,7 @@ export function createAdapterRuntimeToolAccess(input: {
   return Object.freeze({
     version: 1,
     guidance: CONNECTION_INTENT_AGENT_GUIDANCE,
-    mcpEndpoint: `${baseUrl}/mcp/runtime-tools`,
+    mcpEndpoint: routeRuntimeMcpUrl(`${baseUrl}/mcp/runtime-tools`, "runtime-tools"),
     rest: {
       connectionsSearch: `${baseUrl}/runtime-tools/connections/search`,
       connectionRequest: `${baseUrl}/runtime-tools/connections/request`,

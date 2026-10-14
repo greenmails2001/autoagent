@@ -212,6 +212,10 @@ describe("codex remote environment diagnostics", () => {
   });
 
   it("avoids /tmp CODEX_HOME for remote API-key hello probes", async () => {
+    vi.stubEnv("PAPERCLIP_CODEX_PROVIDERS", JSON.stringify({
+      providers: { "9router": { name: "9route", base_url: "https://route.proj.vn/v1", env_key: "OPENAI_API_KEY", wire_api: "responses", requires_openai_auth: false } },
+      model_provider: "9router",
+    }));
     const remoteTarget: AdapterExecutionTarget = {
       kind: "remote",
       transport: "sandbox",
@@ -250,6 +254,9 @@ describe("codex remote environment diagnostics", () => {
       | undefined;
     expect(probeCall?.[4].env.CODEX_HOME).toContain("/remote/workspace/.paperclip-runtime/codex/probe-home-codex-envtest-");
     expect(probeCall?.[4].env.CODEX_HOME?.startsWith("/tmp/")).toBe(false);
+    expect(probeCall?.[4].env._PAPERCLIP_CODEX_CONFIG_TOML).toContain('model_provider = "9router"');
+    expect(probeCall?.[4].env._PAPERCLIP_CODEX_CONFIG_TOML).toContain('base_url = "https://route.proj.vn/v1"');
+    expect(probeCall?.[3].join(" ")).toContain('"$CODEX_HOME/config.toml"');
     expect(probeCall?.[3]).toContain("--skip-git-repo-check");
   });
 

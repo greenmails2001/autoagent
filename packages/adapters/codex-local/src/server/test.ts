@@ -38,6 +38,7 @@ import {
 import { resolveCodexExecutionEngineForRun, testCodexAcpEnvironment } from "./acp.js";
 import { ADAPTER_AUTH_MISSING_CHECK_CODE } from "./auth-check.js";
 import { checkCodexCliVersionForModel, codexHelloProbeModelRejectionCheck } from "./cli-version.js";
+import { prepareCodexRuntimeConfig } from "./runtime-config.js";
 
 function summarizeStatus(checks: AdapterEnvironmentCheck[]): AdapterEnvironmentTestResult["status"] {
   if (checks.some((check) => check.level === "error")) return "fail";
@@ -221,13 +222,25 @@ async function prepareCodexHelloProbe(input: {
     const probeHome = input.targetIsRemote
       ? path.posix.join(input.cwd, ".paperclip-runtime", "codex", `probe-home-${input.runId}`)
       : path.join(os.tmpdir(), `paperclip-codex-probe-${input.runId}`);
+    const providerConfigHome = await fs.mkdtemp(
+      path.join(os.tmpdir(), `paperclip-codex-probe-config-${input.runId}-`),
+    );
+    const preparedProviderConfig = await prepareCodexRuntimeConfig({
+      env: input.env,
+      codexHome: providerConfigHome,
+    });
+    const providerConfigToml = await fs
+      .readFile(path.join(providerConfigHome, "config.toml"), "utf8")
+      .catch(() => "");
+    await preparedProviderConfig.cleanup().catch(() => {});
+    await fs.rm(providerConfigHome, { recursive: true, force: true }).catch(() => {});
     // The local finally path retries cleanup independently of the model result.
     if (!input.targetIsRemote) probeHomeLocalDir = probeHome;
     return {
       command: "sh",
       args: [
         "-c",
-        `set -e; umask 077; mkdir -p "$CODEX_HOME"; printf "%s" "$_PAPERCLIP_CODEX_AUTH_JSON" > "$CODEX_HOME/auth.json"; unset _PAPERCLIP_CODEX_AUTH_JSON; cleanup() { result=$?; trap - EXIT; rm -f "$CODEX_HOME/auth.json" || true; rm -rf "$CODEX_HOME" || printf '%s\\n' '${PROBE_CLEANUP_WARNING}' >&2; exit "$result"; }; trap cleanup EXIT; trap 'exit 130' INT; trap 'exit 143' TERM; "$0" "$@"`,
+        `set -e; umask 077; mkdir -p "$CODEX_HOME"; printf "%s" "$_PAPERCLIP_CODEX_AUTH_JSON" > "$CODEX_HOME/auth.json"; unset _PAPERCLIP_CODEX_AUTH_JSON; if [ -n "$_PAPERCLIP_CODEX_CONFIG_TOML" ]; then printf "%s" "$_PAPERCLIP_CODEX_CONFIG_TOML" > "$CODEX_HOME/config.toml"; fi; unset _PAPERCLIP_CODEX_CONFIG_TOML; cleanup() { result=$?; trap - EXIT; rm -f "$CODEX_HOME/auth.json" || true; rm -rf "$CODEX_HOME" || printf '%s\\n' '${PROBE_CLEANUP_WARNING}' >&2; exit "$result"; }; trap cleanup EXIT; trap 'exit 130' INT; trap 'exit 143' TERM; "$0" "$@"`,
         input.command,
         ...input.args,
       ],
@@ -235,6 +248,7 @@ async function prepareCodexHelloProbe(input: {
         ...input.env,
         CODEX_HOME: probeHome,
         _PAPERCLIP_CODEX_AUTH_JSON: JSON.stringify({ OPENAI_API_KEY: input.probeApiKey }),
+        _PAPERCLIP_CODEX_CONFIG_TOML: providerConfigToml,
       },
       cleanup,
     };
@@ -345,21 +359,22 @@ export async function testEnvironment(
     });
   }
 
-  const configOpenAiKey = env.OPENAI_API_KEY;
-  const hostOpenAiKey = targetIsRemote || Object.hasOwn(env, "OPENAI_API_KEY")
-    ? undefined : process.env.OPENAI_API_KEY;
+  const configProviderKey = isNonEmpty(env.N9ROUTE_API_KEY) ? env.N9ROUTE_API_KEY : env.OPENAI_API_KEY;
+  const hostProviderKey = targetIsRemote || Object.hasOwn(env, "OPENAI_API_KEY") || Object.hasOwn(env, "N9ROUTE_API_KEY")
+    ? undefined
+    : isNonEmpty(process.env.N9ROUTE_API_KEY) ? process.env.N9ROUTE_API_KEY : process.env.OPENAI_API_KEY;
   if (config.managedAiRouting) {
     checks.push({
       code: "codex_managed_provider_configured",
       level: "info",
       message: "Testing the selected connection’s provider and model.",
     });
-  } else if (isNonEmpty(configOpenAiKey) || isNonEmpty(hostOpenAiKey)) {
-    const source = isNonEmpty(configOpenAiKey) ? "adapter config env" : "server environment";
+  } else if (isNonEmpty(configProviderKey) || isNonEmpty(hostProviderKey)) {
+    const source = isNonEmpty(configProviderKey) ? "adapter config env" : "server environment";
     checks.push({
-      code: "codex_openai_api_key_present",
+      code: "codex_provider_api_key_present",
       level: "info",
-      message: "OPENAI_API_KEY is set for Codex authentication.",
+      message: "A provider API key is set for Codex authentication.",
       detail: `Detected in ${source}.`,
     });
   } else if (!targetIsRemote) {
@@ -376,10 +391,10 @@ export async function testEnvironment(
       });
     } else {
       checks.push({
-        code: "codex_openai_api_key_missing",
+        code: "codex_provider_api_key_missing",
         level: "warn",
-        message: "OPENAI_API_KEY is not set. Codex runs may fail until authentication is configured.",
-        hint: "Set OPENAI_API_KEY in adapter env, shell environment, or run `codex auth` to log in.",
+        message: "A provider API key is not set. Codex runs may fail until authentication is configured.",
+        hint: "Connect the configured model provider in AutoAgent, or run `codex auth` to log in.",
       });
     }
   }
@@ -461,10 +476,10 @@ export async function testEnvironment(
       // the command line) to avoid leaking it into process listings.
       // Managed connections already contain their exact auth and provider config.
       // Replacing that home with a native-key probe would test another provider.
-      const probeApiKey = config.managedAiConnection ? null : isNonEmpty(configOpenAiKey)
-        ? configOpenAiKey
-        : isNonEmpty(hostOpenAiKey)
-          ? hostOpenAiKey
+      const probeApiKey = config.managedAiConnection ? null : isNonEmpty(configProviderKey)
+        ? configProviderKey
+        : isNonEmpty(hostProviderKey)
+          ? hostProviderKey
           : null;
       const preparedProbe = await prepareCodexHelloProbe({
         managedAiConnection: Boolean(config.managedAiConnection),
@@ -539,8 +554,8 @@ export async function testEnvironment(
             message: "Codex CLI is installed, but authentication is not ready.",
             ...(detail ? { detail } : {}),
             hint: probeApiKey
-              ? "OPENAI_API_KEY was provided but Codex still rejected the request. Verify the key is valid for the OpenAI Responses API (e.g. `curl -H \"Authorization: Bearer $OPENAI_API_KEY\" https://api.openai.com/v1/models`), or run `codex login` and seed `~/.codex/auth.json`."
-              : "Codex CLI does not read OPENAI_API_KEY from the environment; set OPENAI_API_KEY in this adapter's config (so Paperclip writes it to `$CODEX_HOME/auth.json`) or run `codex login` on the host first.",
+              ? "The configured provider key was supplied, but Codex rejected the request. Verify the selected provider endpoint and key, or reconnect the account in AutoAgent."
+              : "Codex CLI has no usable provider credential. Connect the configured provider in AutoAgent or run `codex login` on the host.",
           });
           if (targetIsSandbox) {
             // Emit the neutral canonical check so the user interface can decide

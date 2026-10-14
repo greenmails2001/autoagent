@@ -46,6 +46,15 @@ async function mount(connections: AiManagedConnectionSummary[], canManageConnect
   </QueryClientProvider>));
   await settle();
 }
+
+async function mountCodex(connections: AiManagedConnectionSummary[]) {
+  mocks.list.mockResolvedValue({ currentUserId: "owner", connections, canManageConnections: true });
+  flushSync(() => root.render(<QueryClientProvider client={client}>
+    <AiConnectionField companyId="company" agentId="agent" agentName="Nova" adapterType="codex_local"
+      value={{ provider: "openai", method: "subscription", mode: "responsible_user" }} onChange={onChange} />
+  </QueryClientProvider>));
+  await settle();
+}
 async function click(label: string) {
   if (label === "Connect another account") {
     const trigger = document.querySelector('[role="combobox"][aria-label="Connection"]')!;
@@ -146,4 +155,26 @@ it("uses the server's connection-manager permission for company-wide access", as
   await mount([], true);
   await click("Connect another account");
   expect(credentialProps).toMatchObject({ allAgents: true });
+});
+
+it("renders 9route as a Codex provider and binds the selected provider", async () => {
+  await mountCodex([
+    account({ provider: "openai", name: "My OpenAI", status: "connected" }),
+    account({ id: "n9-connection", grantId: "n9-grant", provider: "9route", method: "api_key", name: "My N9route", status: "connected", isDefault: true }),
+  ]);
+
+  const providerSelect = Array.from(document.querySelectorAll("select")).find((select) =>
+    Array.from(select.options).some((option) => option.value === "9route"),
+  );
+  expect(providerSelect, "Codex provider selector should render").toBeDefined();
+  flushSync(() => {
+    providerSelect!.value = "9route";
+    providerSelect!.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+
+  expect(onChange).toHaveBeenCalledWith({
+    provider: "9route",
+    method: "api_key",
+    mode: "responsible_user",
+  });
 });

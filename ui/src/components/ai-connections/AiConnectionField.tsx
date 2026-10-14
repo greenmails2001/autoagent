@@ -14,6 +14,7 @@ import { AiConnectionSelect } from "./AiConnectionSelect";
 import { AiProviderSetup } from "./AiProviderSetup";
 import { AiConnectionCredentialStep } from "./AiConnectionCredentialStep";
 import { AiConnectionLegacyNotice } from "./AiConnectionManagement";
+import { AI_PROVIDERS, aiProvidersForAdapter, providerUsesApiKeyOnly } from "./model";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -28,16 +29,7 @@ import {
 export function aiProviderForAdapter(
   adapterType: string,
 ): AiProvider | undefined {
-  return (
-    {
-      claude_local: "anthropic",
-      codex_local: "openai",
-      opencode_local: "openrouter",
-      grok_local: "xai",
-      gemini_local: "google",
-      hermes_local: "openrouter",
-    } as Record<string, AiProvider>
-  )[adapterType];
+  return aiProvidersForAdapter(adapterType)[0];
 }
 export function AiConnectionField({
   companyId,
@@ -66,7 +58,9 @@ export function AiConnectionField({
   preferAdvanced?: boolean;
   routerAdapterType?: string;
 }) {
-  const provider = aiProviderForAdapter(adapterType);
+  const availableProviders = aiProvidersForAdapter(adapterType);
+  const [providerOverride, setProviderOverride] = useState<AiProvider>();
+  const provider = providerOverride ?? (value?.mode !== "router" ? value?.provider : undefined) ?? availableProviders[0];
   const returnFocus = useRef<HTMLElement | null>(null);
   const restoreFocus = (event: Event) => { event.preventDefault(); returnFocus.current?.focus(); };
   const [adopting, setAdopting] = useState(false);
@@ -111,7 +105,7 @@ export function AiConnectionField({
   };
   const method: AiAuthMethod = (value && value.mode !== "router" && value.mode !== "responsible_user" ? value.method : undefined)
     ?? accounts.data?.connections.find((account) => account.provider === provider && account.isDefault)?.method
-    ?? (provider === "openrouter" || provider === "google" ? "api_key" : "subscription");
+    ?? (provider && providerUsesApiKeyOnly(provider) ? "api_key" : "subscription");
   const compatiblePools = agentId ? accounts.data?.pools?.filter(pool => pool.enabled && pool.members.some(member => isAiConnectionCompatible(member.binding, routerAdapterType ?? adapterType, member.profile.model, member.profile.provider, member.profile.acpxAgent))) ?? [] : [];
   if (!provider) return null;
   if (legacy && !value && !adopting)
@@ -123,6 +117,22 @@ export function AiConnectionField({
     );
   return (
     <div className="space-y-4">
+      {availableProviders.length > 1 && <label className="block space-y-1 text-sm">
+        Provider
+        <select className="block w-full rounded-md border bg-background px-3 py-2" disabled={readOnly} value={provider} onChange={(event) => {
+          const nextProvider = event.target.value as AiProvider;
+          setProviderOverride(nextProvider);
+          changeBinding({
+            provider: nextProvider,
+            method: providerUsesApiKeyOnly(nextProvider) ? "api_key" : "subscription",
+            mode: "responsible_user",
+          });
+        }}>
+          {availableProviders.map((availableProvider) => <option key={availableProvider} value={availableProvider}>
+            {AI_PROVIDERS[availableProvider].name}
+          </option>)}
+        </select>
+      </label>}
       {value && value.mode !== "router" && (adapterType !== "opencode_local" || Boolean(model)) && !isAiConnectionCompatible(value, adapterType, model) && (
         <p role="alert" className="text-sm text-destructive">
           This connection does not support the current harness and model. Choose
@@ -236,7 +246,7 @@ export function AiConnectionField({
             initialMethod={reconnecting?.method ?? method}
             fixedMethod={Boolean(reconnecting)}
             connectionId={reconnecting?.id}
-            name={reconnecting?.name ?? `My ${provider === "anthropic" ? "Claude" : provider === "openai" ? "OpenAI" : provider === "xai" ? "Grok" : provider === "google" ? "Gemini" : "OpenRouter"} ${method === "subscription" ? "subscription" : "API"}`}
+            name={reconnecting?.name ?? `My ${AI_PROVIDERS[provider].name} ${method === "subscription" ? "subscription" : "API"}`}
             ownership="personal"
             agentIds={agentId ? [agentId] : []}
             allAgents={allAgents}

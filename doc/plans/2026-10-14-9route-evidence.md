@@ -31,6 +31,14 @@
 - Optional N9 MCP gateway routing validates the configured base and target allowlist.
 - Native production health is not claimed; it requires the deployment gate and real 9route endpoint/credential without exposing secret values.
 
+## Integration review corrections
+
+- Production heartbeat delivery now routes all three supported MCP targets through the optional N9 gateway: assigned gateways, runtime tools, and project tools. The focused run-preparation test proves the emitted runtime-tools URL; existing gateway integration coverage exercises assigned gateway production output.
+- The rendered Codex connection field exposes OpenAI and N9route and emits a `9route` responsible-user binding. The component test failed before the selector was wired and passes after the change.
+- CLI execution now applies custom provider configuration to managed connection homes, ACP materializes that configuration before runtime creation, and remote API-key hello probes install the same provider TOML in the disposable probe home. ACP and remote-probe tests failed before these seams were implemented and pass afterward.
+- `n9/custom-features.json` now accounts for every path in the preserved legacy worktree diff. Paths without sufficient 9route evidence are explicitly `unverified`; no path is silently treated as dropped and there are no `proposed-drop` entries.
+- Focused correction verification: 4 files, 73 tests passed; Codex adapter and UI typechecks passed. Server typecheck again reached the native Runner build and stopped only because `cargo` is unavailable on this checkout host.
+
 ## Rollback
 
 1. Before any future default restore, export and verify the exact four-row snapshot plus credential/grant references without secret values.
