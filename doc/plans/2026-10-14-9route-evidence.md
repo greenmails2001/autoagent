@@ -17,7 +17,12 @@
 - Generated `0339_green_iron_patriot.sql`; it only replaces the two provider CHECK constraints and adds `9route` while retaining all current providers including `google`.
 - No credential, grant, reference, or default-row INSERT/UPDATE/DELETE appears in the migration.
 - The four saved default rows remain withheld.
-- Live representative-data upgrade/rollback remains an independent Data/DB review gate because this workspace has no authorized production data connection.
+- Live disposable PostgreSQL 17 evidence is reproducible with `doc/plans/2026-10-14-9route-live-db.sql`. The run used the exact `0339_green_iron_patriot.sql` from commit `3b86c9a1f13ec96f85d8d203acca4f9ef2b92619`.
+- Pre/post `0338 → 0339`: both defaults tables stayed at one row with stable IDs `60000000-0000-0000-0000-000000000001` and `70000000-0000-0000-0000-000000000001`; grant, credential-reference, and reference counts stayed `1/1/1`.
+- The upgraded constraints accepted one `9route` row in each defaults table. The test also proved the provider unique constraint rejects a duplicate and the company/grant FK rejects an unknown grant.
+- Credential-to-grant and stable-reference joins returned `true` before rollback-forward. No credential values were selected or logged.
+- Rollback-forward first deleted both test `9route` rows, then applied new forward constraint definitions without `9route`. Final 9route counts were `0/0`; original stable IDs and `1/1/1` integrity counts remained unchanged; both integrity joins returned `true`.
+- This validates representative migration mechanics only. It does not authorize production deployment or restore the four saved defaults.
 
 ## Runtime and Health
 
