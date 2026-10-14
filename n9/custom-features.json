@@ -1,0 +1,166 @@
+{
+  "schemaVersion": 1,
+  "legacySource": "/u01/apps/n9/sources/autoagent-source",
+  "features": [
+    {
+      "id": "9route",
+      "title": "9Route provider, model discovery, defaults, and branding",
+      "disposition": "pending",
+      "legacyPaths": [
+        "packages/db/src/migrations/0284_add_9route_ai_provider.sql",
+        "packages/db/src/migrations/meta/_journal.json",
+        "packages/db/src/schema/ai_connection_defaults.ts",
+        "packages/db/src/schema/ai_provider_defaults.ts",
+        "packages/shared/src/ai-connections.ts",
+        "packages/shared/src/app-definitions.generated.ts",
+        "packages/shared/src/app-definitions.test.ts",
+        "packages/shared/src/app-definitions/9route.json",
+        "server/src/__tests__/agent-hire-ai-connections.test.ts",
+        "server/src/__tests__/ai-account-profile.test.ts",
+        "server/src/__tests__/ai-connections.test.ts",
+        "server/src/routes/agents.ts",
+        "server/src/routes/ai-connections.ts",
+        "server/src/services/agent-ai-connection-default.ts",
+        "server/src/services/ai-connection-runtime.ts",
+        "server/src/services/ai-connections.ts",
+        "server/src/services/n9route-models.test.ts",
+        "server/src/services/n9route-models.ts",
+        "ui/public/brands/apps/n9route.svg"
+      ],
+      "targetPaths": ["packages/shared/src/app-definitions/9route.json"],
+      "tests": ["server/src/services/n9route-models.test.ts"],
+      "reviewers": ["N9-247 Runtime Engineer", "N9-247 Integration Reviewer", "TaskAgent Data Guardian"],
+      "dataNotes": "Two connection defaults and two provider defaults are preserved in n9_cutover_20261014_* tables. Restore only after the new append-only migration and runtime support are deployed."
+    },
+    {
+      "id": "codex-acp-runtime",
+      "title": "Codex ACP local and remote runtime behavior",
+      "disposition": "pending",
+      "legacyPaths": [
+        "packages/adapters/codex-local/src/server/acp.test.ts",
+        "packages/adapters/codex-local/src/server/acp.ts",
+        "packages/adapters/codex-local/src/server/execute.ts",
+        "packages/adapters/codex-local/src/server/test.remote.test.ts",
+        "packages/adapters/codex-local/src/server/test.ts"
+      ],
+      "targetPaths": ["packages/adapters/codex-local/src/server/acp.ts"],
+      "tests": ["packages/adapters/codex-local/src/server/acp.test.ts"],
+      "reviewers": ["N9-247 Runtime Engineer", "N9-247 Integration Reviewer"],
+      "dataNotes": "No database migration; preserve remote execution and ACP compatibility behavior."
+    },
+    {
+      "id": "issue-recovery",
+      "title": "Issue continuation, blockers, and recovery actions",
+      "disposition": "pending",
+      "legacyPaths": [
+        "doc/plans/2026-09-30-autoagent-onboarding-recovery.md",
+        "packages/shared/src/types/execution-projection.ts",
+        "packages/shared/src/validators/agent.ts",
+        "server/src/__tests__/issue-continuation-summary.test.ts",
+        "server/src/__tests__/issue-recovery-actions.test.ts",
+        "server/src/modules/run-dispatch/adapters/postgres.test.ts",
+        "server/src/modules/run-dispatch/adapters/postgres.ts",
+        "server/src/modules/run-dispatch/domain/policy.test.ts",
+        "server/src/modules/run-dispatch/domain/policy.ts",
+        "server/src/services/execution-blocker.ts",
+        "server/src/services/execution-recovery-resolution.ts",
+        "server/src/services/heartbeat.ts",
+        "server/src/services/issue-continuation-summary.ts",
+        "ui/src/components/ExecutionBlockerNotice.test.tsx",
+        "ui/src/components/ExecutionBlockerNotice.tsx",
+        "ui/storybook/stories/execution-blocker-notice.stories.tsx"
+      ],
+      "targetPaths": ["server/src/services/issue-continuation-summary.ts"],
+      "tests": ["server/src/__tests__/issue-continuation-summary.test.ts"],
+      "reviewers": ["N9-247 Runtime Engineer", "N9-247 Integration Reviewer", "TaskAgent Upgrade Auditor"],
+      "dataNotes": "Verify compatibility with current run and issue state before applying any legacy persistence assumptions."
+    },
+    {
+      "id": "tool-runtime-mcp",
+      "title": "Tool access, gateway, and runtime MCP routing",
+      "disposition": "pending",
+      "legacyPaths": [
+        "server/src/__tests__/runtime-mcp-routing.test.ts",
+        "server/src/__tests__/tool-access-service.test.ts",
+        "server/src/__tests__/tool-gateway.test.ts",
+        "server/src/services/runtime-mcp-routing.ts",
+        "server/src/services/tool-access.ts",
+        "server/src/services/tool-gateway.ts"
+      ],
+      "targetPaths": ["server/src/services/runtime-mcp-routing.ts"],
+      "tests": ["server/src/__tests__/runtime-mcp-routing.test.ts"],
+      "reviewers": ["N9-247 Runtime Engineer", "N9-247 Integration Reviewer", "Security & IAM reviewer"],
+      "dataNotes": "Security-sensitive routing and authorization behavior requires explicit IAM review."
+    },
+    {
+      "id": "provider-onboarding-ui",
+      "title": "Provider credentials, AI connection selection, and onboarding UI",
+      "disposition": "pending",
+      "legacyPaths": [
+        "packages/shared/src/app-definitions/github.json",
+        "ui/src/components/AdapterLoginChrome.tsx",
+        "ui/src/components/AgentConfigForm.test.ts",
+        "ui/src/components/AgentConfigForm.tsx",
+        "ui/src/components/OnboardingWizard.test.tsx",
+        "ui/src/components/OnboardingWizard.tsx",
+        "ui/src/components/ai-connections/AiConnectionAccountControls.tsx",
+        "ui/src/components/ai-connections/AiConnectionCredentialStep.test.ts",
+        "ui/src/components/ai-connections/AiConnectionCredentialStep.tsx",
+        "ui/src/components/ai-connections/AiConnectionDesignExamples.tsx",
+        "ui/src/components/ai-connections/AiConnectionField.test.ts",
+        "ui/src/components/ai-connections/AiConnectionField.tsx",
+        "ui/src/components/ai-connections/AiConnectionPicker.test.tsx",
+        "ui/src/components/ai-connections/AiConnectionPicker.tsx",
+        "ui/src/components/ai-connections/ManagedAiConnectionDetails.tsx",
+        "ui/src/components/ai-connections/model.ts",
+        "ui/src/components/onboarding/SavedProviderKeySelect.tsx",
+        "ui/src/features/connections/ConnectionChoiceList.tsx",
+        "ui/src/lib/onboarding-model-sources.test.ts",
+        "ui/src/lib/onboarding-model-sources.ts",
+        "ui/src/lib/provider-credential.ts",
+        "ui/storybook/prototypes/AiConnectionsReview.tsx"
+      ],
+      "targetPaths": ["ui/src/components/OnboardingWizard.tsx"],
+      "tests": ["ui/src/components/OnboardingWizard.test.tsx"],
+      "reviewers": ["N9-247 Integration Reviewer", "Security & IAM reviewer"],
+      "dataNotes": "Credentials and grants must remain intact; never copy or log secret values during migration."
+    },
+    {
+      "id": "cli-issue-subresources",
+      "title": "CLI issue subresource commands",
+      "disposition": "pending",
+      "legacyPaths": [
+        "cli/src/__tests__/issue-subresources.test.ts",
+        "cli/src/commands/client/issue.ts"
+      ],
+      "targetPaths": ["cli/src/commands/client/issue.ts"],
+      "tests": ["cli/src/__tests__/issue-subresources.test.ts"],
+      "reviewers": ["N9-247 Runtime Engineer", "N9-247 Integration Reviewer"],
+      "dataNotes": "No persistent data; preserve CLI/API compatibility."
+    },
+    {
+      "id": "auth-agent-detail",
+      "title": "Sign-out and agent detail behavior",
+      "disposition": "pending",
+      "legacyPaths": [
+        "ui/src/hooks/useSignOut.test.tsx",
+        "ui/src/hooks/useSignOut.ts",
+        "ui/src/pages/AgentDetail.tsx"
+      ],
+      "targetPaths": ["ui/src/hooks/useSignOut.ts"],
+      "tests": ["ui/src/hooks/useSignOut.test.tsx"],
+      "reviewers": ["N9-247 Integration Reviewer", "Security & IAM reviewer"],
+      "dataNotes": "Authentication behavior requires explicit security review; no credential values may enter Git."
+    },
+    {
+      "id": "installer-deploy",
+      "title": "Native install dependency lock and deployment compatibility",
+      "disposition": "ported",
+      "legacyPaths": ["pnpm-lock.yaml"],
+      "targetPaths": ["pnpm-lock.yaml"],
+      "tests": ["scripts/check-n9-custom-features.test.mjs"],
+      "reviewers": ["N9-247 Runtime Engineer", "TaskAgent Data Guardian"],
+      "dataNotes": "Native service payload 0.3.1 at 775c4da2b is live; PostgreSQL remains loopback-only in a container and rollback backup evidence is retained."
+    }
+  ]
+}

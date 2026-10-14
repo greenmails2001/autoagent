@@ -1,0 +1,21 @@
+name: N9 custom governance
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  manifest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.11.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check:n9-custom
+      - run: node --test scripts/check-n9-custom-features.test.mjs
