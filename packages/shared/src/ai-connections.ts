@@ -30,6 +30,7 @@ export type ConnectionPurposeTransport = z.infer<
 export const AI_PROVIDERS = [
   "anthropic",
   "openai",
+  "9route",
   "openrouter",
   "xai",
   "google",
@@ -95,6 +96,12 @@ export const AI_CONNECTION_CAPABILITIES: Record<
     methods: {
       subscription: { adapters: ["codex_local"], envKey: "CODEX_HOME" },
       api_key: { adapters: ["codex_local"], envKey: "OPENAI_API_KEY" },
+    },
+  },
+  "9route": {
+    name: "9route",
+    methods: {
+      api_key: { adapters: ["codex_local"], envKey: "N9ROUTE_API_KEY" },
     },
   },
   openrouter: {

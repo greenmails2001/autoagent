@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "groups": {
+    "9route": {
+      "source": "/u01/apps/n9/sources/autoagent-source",
+      "reconstruction": "owner-approved legacy worktree and Git diff",
+      "entries": [
+        { "path": "packages/db/src/schema/ai_connection_defaults.ts", "disposition": "ported", "evidence": "0339 migration and schema check" },
+        { "path": "packages/db/src/schema/ai_provider_defaults.ts", "disposition": "ported", "evidence": "0339 migration and schema check" },
+        { "path": "packages/shared/src/ai-connections.ts", "disposition": "ported", "evidence": "provider contract and typecheck" },
+        { "path": "packages/shared/src/app-definitions/9route.json", "disposition": "ported", "evidence": "app definition registration" },
+        { "path": "server/src/services/n9route-models.ts", "disposition": "ported", "evidence": "n9route-models.test.ts" },
+        { "path": "server/src/services/runtime-mcp-routing.ts", "disposition": "ported", "evidence": "runtime-mcp-routing.test.ts" },
+        { "path": "server/src/services/ai-api-key-test.ts", "disposition": "ported", "evidence": "fixed operator endpoint validation" },
+        { "path": "server/src/services/ai-connection-runtime.ts", "disposition": "ported", "evidence": "isolated Codex provider projection and typecheck" },
+        { "path": "server/src/routes/agents.ts", "disposition": "ported", "evidence": "provider-scoped model discovery" },
+        { "path": "ui/src/lib/onboarding-model-sources.ts", "disposition": "ported", "evidence": "onboarding-model-sources.test.ts" },
+        { "path": "ui/src/components/ai-connections/model.ts", "disposition": "ported", "evidence": "AiConnectionField.test.ts" },
+        { "path": "ui/public/brands/apps/n9route.svg", "disposition": "ported", "evidence": "asset present and UI typecheck" },
+        { "path": "legacy account-picker CRUD changes", "disposition": "unverified", "evidence": "legacy diff also contained unrelated account-management behavior; no 9route-only mapping proven" },
+        { "path": "four saved ai-provider default rows", "disposition": "withheld", "evidence": "restore prohibited until post-review runtime/data gates" }
+      ]
+    }
+  }
+}

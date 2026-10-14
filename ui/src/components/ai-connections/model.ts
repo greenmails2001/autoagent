@@ -18,6 +18,7 @@ export const AI_PROVIDERS: Record<
     subscriptionName: "ChatGPT subscription",
     logo: "/brands/codex-color.svg",
   },
+  "9route": { name: "N9route", logo: "/brands/apps/n9route.svg" },
   openrouter: { name: "OpenRouter", logo: "/brands/apps/openrouter.svg" },
   xai: {
     name: "Grok",
@@ -25,6 +26,25 @@ export const AI_PROVIDERS: Record<
     logo: "/brands/adapters/grok.svg",
   },
 };
+
+export function aiProvidersForAdapter(adapterType: string): AiProvider[] {
+  return ({
+    claude_local: ["anthropic"],
+    codex_local: ["openai", "9route"],
+    opencode_local: ["openrouter"],
+    hermes_local: ["openrouter"],
+    grok_local: ["xai"],
+    gemini_local: ["google"],
+  } as Record<string, AiProvider[]>)[adapterType] ?? [];
+}
+
+export function adapterRequiresProviderScopedModel(adapterType: string) {
+  return aiProvidersForAdapter(adapterType).length > 1;
+}
+
+export function providerUsesApiKeyOnly(provider: AiProvider) {
+  return provider === "9route" || provider === "openrouter" || provider === "google";
+}
 
 export type AiConnectionSummary = Omit<AiManagedConnectionSummary, "isDefault"> & { isDefault?: boolean };
 

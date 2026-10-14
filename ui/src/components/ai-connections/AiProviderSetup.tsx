@@ -32,6 +32,11 @@ const providers = [
     description: "ChatGPT subscription or API key",
   },
   {
+    id: "9route",
+    name: "N9route",
+    description: "Codex-compatible models through the N9 gateway",
+  },
+  {
     id: "anthropic",
     name: "Anthropic",
     description: "Claude subscription or API key",

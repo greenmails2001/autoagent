@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "slug": "9route",
+  "name": "9route",
+  "description": "Connect 9route API credentials for Codex agents.",
+  "categories": ["ai"],
+  "branding": {
+    "logoUrl": "/brands/apps/n9route.svg",
+    "darkLogoUrl": "/brands/apps/n9route.svg"
+  },
+  "urlPatterns": [],
+  "methods": [
+    {
+      "key": "ai-api_key",
+      "label": "9route API key",
+      "purpose": "ai",
+      "transport": "runtime_auth",
+      "auth": "api_key",
+      "ai": { "provider": "9route", "method": "api_key" },
+      "grantKinds": ["user", "organization"],
+      "ownershipModes": ["customer"],
+      "whenToUse": "Authenticate Codex agents through the organization-managed 9route gateway.",
+      "guidanceMd": "Use the 9route key issued for this N9 account or organization.",
+      "riskTier": "S3",
+      "credentialFields": [
+        {
+          "key": "apiKey",
+          "label": "9route API key",
+          "type": "password",
+          "required": true,
+          "placeholder": "Enter 9route API key",
+          "secret": true
+        }
+      ],
+      "keyPlacement": { "location": "env", "name": "N9ROUTE_API_KEY" }
+    }
+  ]
+}
