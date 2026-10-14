@@ -36,8 +36,22 @@
 - Production heartbeat delivery now routes all three supported MCP targets through the optional N9 gateway: assigned gateways, runtime tools, and project tools. The focused run-preparation test proves the emitted runtime-tools URL; existing gateway integration coverage exercises assigned gateway production output.
 - The rendered Codex connection field exposes OpenAI and N9route and emits a `9route` responsible-user binding. The component test failed before the selector was wired and passes after the change.
 - CLI execution now applies custom provider configuration to managed connection homes, ACP materializes that configuration before runtime creation, and remote API-key hello probes install the same provider TOML in the disposable probe home. ACP and remote-probe tests failed before these seams were implemented and pass afterward.
-- `n9/custom-features.json` now accounts for every path in the preserved legacy worktree diff. Paths without sufficient 9route evidence are explicitly `unverified`; no path is silently treated as dropped and there are no `proposed-drop` entries.
+- `n9/custom-features.json` accounts for the union of tracked changes and relevant untracked files in the preserved legacy worktree. `.gitnexus/`, `graphify-out/`, and the unrelated `doc/plans/2026-09-30-autoagent-onboarding-recovery.md` are excluded. Paths without sufficient production-equivalent evidence are explicitly `unverified`; no path is silently treated as dropped and there are no `proposed-drop` entries.
 - Focused correction verification: 4 files, 73 tests passed; Codex adapter and UI typechecks passed. Server typecheck again reached the native Runner build and stopped only because `cargo` is unavailable on this checkout host.
+
+Reproduce ledger coverage from the repository root. The command exits non-zero and prints every missing tracked or relevant untracked path:
+
+```bash
+legacy_source=/u01/apps/n9/sources/autoagent-source
+missing="$({
+  git -C "$legacy_source" diff --name-only
+  git -C "$legacy_source" ls-files --others --exclude-standard \
+    | rg -v '^(\.gitnexus/|graphify-out/|doc/plans/2026-09-30-autoagent-onboarding-recovery\.md$)'
+} | sort -u | comm -23 - <(jq -r '.groups["9route"].entries[].path' n9/custom-features.json | sort -u))"
+test -z "$missing" || { printf '%s\n' "$missing"; exit 1; }
+```
+
+The corrected ledger includes the 13 previously omitted untracked paths. `OnboardingWizard.tsx`, its test, `AiConnectionPicker.test.tsx`, and the unconsumed onboarding model-source helper/test remain `unverified`; no helper-only evidence is used to claim production behavior.
 
 ## Rollback
 
