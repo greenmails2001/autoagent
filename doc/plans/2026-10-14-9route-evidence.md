@@ -6,6 +6,12 @@
 - Target branch: `n9/custom`
 - Feature branch: `agent/n9-247-runtime-engineer/23629858afe4`
 
+## Review Gates
+
+- Source head `2fec5c1878271b432ece089a3c5c7f976bfdf497`: independent integration gate **PASS** and Data/DB migration/preservation gate **PASS**.
+- Reviewed `ported`, `unverified`, and `withheld` row dispositions are retained exactly; gate approval does not promote any `unverified` row.
+- Native production health remains pending. No merge, deployment, or four-row default restore is authorized by these source-side verdicts.
+
 ## Test Evidence
 
 - RED: 6 files failed, 11 tests failed because 9route modules/helpers/provider entries were absent.

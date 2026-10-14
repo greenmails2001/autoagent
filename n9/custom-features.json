@@ -4,6 +4,13 @@
     "9route": {
       "source": "/u01/apps/n9/sources/autoagent-source",
       "reconstruction": "owner-approved legacy worktree and Git diff",
+      "review": {
+        "reviewedHead": "2fec5c1878271b432ece089a3c5c7f976bfdf497",
+        "integrationGate": "passed",
+        "dataDbGate": "passed",
+        "nativeProductionHealth": "pending",
+        "defaultRestore": "withheld"
+      },
       "entries": [
         { "path": "cli/src/__tests__/issue-subresources.test.ts", "disposition": "unverified", "evidence": "legacy issue CLI behavior not proven 9route-specific" },
         { "path": "cli/src/commands/client/issue.ts", "disposition": "unverified", "evidence": "legacy issue CLI behavior not proven 9route-specific" },
