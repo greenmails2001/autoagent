@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import fsSync from "node:fs";
 import { randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
@@ -289,6 +290,29 @@ function buildContext(root: string, overrides: Partial<AdapterExecutionContext> 
 }
 
 describe("codex_local ACP lane", () => {
+  it("merges configured Codex providers into a managed home before local ACP runtime creation", async () => {
+    const root = await makeTempRoot("paperclip-codex-acp-provider-");
+    const managedHome = path.join(process.env.PAPERCLIP_HOME!, "instances", process.env.PAPERCLIP_INSTANCE_ID!, "companies", "company-1", "agents", "agent-1", "codex-home");
+    await fs.mkdir(managedHome, { recursive: true });
+    let configAtRuntimeCreation = "";
+    const execute = createCodexAcpExecutor({
+      createRuntime: (options: FakeRuntimeOptions) => {
+        configAtRuntimeCreation = fsSync.readFileSync(path.join(managedHome, "config.toml"), "utf8");
+        return new FakeRuntime(options) as never;
+      },
+    });
+    const result = await execute(buildContext(root, { config: {
+      engine: "acp", cwd: root, stateDir: path.join(root, "state"),
+      env: { CODEX_HOME: managedHome, OPENAI_API_KEY: "test-key", PAPERCLIP_CODEX_PROVIDERS: JSON.stringify({
+        providers: { "9router": { name: "9route", base_url: "https://route.proj.vn/v1", env_key: "OPENAI_API_KEY", wire_api: "responses", requires_openai_auth: false } },
+        model_provider: "9router",
+      }) }, promptTemplate: "Do the assigned work.",
+    } }));
+    expect(result.exitCode).toBe(0);
+    expect(configAtRuntimeCreation).toContain('model_provider = "9router"');
+    expect(configAtRuntimeCreation).toContain("[model_providers.9router]");
+    expect(configAtRuntimeCreation).toContain('base_url = "https://route.proj.vn/v1"');
+  });
   it("keeps ACP selected and reports unavailable prerequisites for default and explicit engines", async () => {
     const root = await makeTempRoot("paperclip-codex-acp-default-");
     const commandPath = path.join(root, "bin", "codex-acp");

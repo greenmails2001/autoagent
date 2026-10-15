@@ -12,6 +12,7 @@ import {
   buildPaperclipRuntimeMcpServers,
   buildPaperclipWakePayload,
   ConfigurationIncompleteFailure,
+  createAdapterRuntimeToolAccess,
   createHeartbeatRunPreparation,
   resolveExecutionRunAdapterConfig,
 } from "./run-preparation.js";
@@ -41,6 +42,19 @@ function databaseWithResults(...results: unknown[][]) {
 const emptyRoutineContext = { routineId: null, env: null, responsibleUserId: null };
 
 describe("heartbeat run preparation module", () => {
+  it("routes the production runtime-tools endpoint through the configured N9 gateway", () => {
+    vi.stubEnv("PAPERCLIP_API_URL", "https://paperclip.example.test");
+    vi.stubEnv("PAPERCLIP_AGENT_JWT_SECRET", "runtime-tools-routing-test-secret");
+    vi.stubEnv("AUTOAGENT_N9_MCP_GATEWAY_BASE_URL", "https://n9.example.test/mcp");
+    const access = createAdapterRuntimeToolAccess({
+      agentId: "agent-one",
+      companyId: "company-one",
+      runId: "run-one",
+      responsibleUserId: "user-one",
+    });
+    expect(access?.mcpEndpoint).toBe("https://n9.example.test/mcp/runtime-tools");
+    vi.unstubAllEnvs();
+  });
   it("preserves the legacy error class and public preparation functions", () => {
     expect(LegacyConfigurationIncompleteFailure).toBe(ConfigurationIncompleteFailure);
     expect(legacyResolveAdapterConfig).toBe(resolveExecutionRunAdapterConfig);

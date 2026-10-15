@@ -45,9 +45,13 @@ import { copyBackCodexAuth } from "./codex-auth-copyback.js";
 import { buildCodexAuthInboundProvision } from "./codex-auth-merge-scripts.js";
 import {
   evaluateCodexCredentialReadiness,
+  isManagedCodexHomePath,
+  prepareManagedCodexHome,
   resolveSharedCodexHomeDir,
+  seedManagedCodexHome,
   stageCodexHomeForSync,
 } from "./codex-home.js";
+import { prepareCodexRuntimeConfig } from "./runtime-config.js";
 import { ADAPTER_AUTH_MISSING_CHECK_CODE } from "./auth-check.js";
 import { checkCodexCliVersionForModel } from "./cli-version.js";
 
@@ -366,11 +370,34 @@ export function createCodexAcpExecutor(options: CodexAcpExecutorOptions = {}): C
       currentExecutor = createAcpxEngineExecutor(withCodexAcpDefaults(options));
       executor = currentExecutor;
     }
-    const result = await currentExecutor({
-      ...ctx,
-      config: buildCodexAcpConfig(ctx.config),
+    const config = buildCodexAcpConfig(ctx.config);
+    const envConfig = parseObject(config.env);
+    const configuredCodexHome = isNonEmpty(envConfig.CODEX_HOME) ? path.resolve(envConfig.CODEX_HOME) : null;
+    const configuredApiKey = isNonEmpty(envConfig.OPENAI_API_KEY) ? envConfig.OPENAI_API_KEY : null;
+    const configuredHomeIsManaged = configuredCodexHome !== null &&
+      isManagedCodexHomePath(process.env, ctx.agent.companyId, configuredCodexHome);
+    const managedAiConnection = Boolean(config.managedAiConnection);
+    let effectiveCodexHome = configuredCodexHome;
+    if (configuredHomeIsManaged && configuredCodexHome) {
+      await seedManagedCodexHome(configuredCodexHome, process.env, ctx.onLog, { apiKey: configuredApiKey });
+    } else if (!configuredCodexHome) {
+      effectiveCodexHome = await prepareManagedCodexHome(process.env, ctx.onLog, ctx.agent.companyId, { apiKey: configuredApiKey });
+    }
+    const runtimeEnv = { ...envConfig, ...(effectiveCodexHome ? { CODEX_HOME: effectiveCodexHome } : {}) };
+    const envStrings = Object.fromEntries(Object.entries(runtimeEnv).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string",
+    ));
+    const preparedRuntimeConfig = await prepareCodexRuntimeConfig({
+      env: envStrings,
+      codexHome: configuredCodexHome && !configuredHomeIsManaged && !managedAiConnection ? null : effectiveCodexHome,
     });
-    return withCodexAuthRefreshFailureClassification(result);
+    try {
+      for (const note of preparedRuntimeConfig.notes) await ctx.onLog("stdout", `[paperclip] ${note}\n`);
+      const result = await currentExecutor({ ...ctx, config: { ...config, env: runtimeEnv } });
+      return withCodexAuthRefreshFailureClassification(result);
+    } finally {
+      await preparedRuntimeConfig.cleanup();
+    }
   };
 }
 

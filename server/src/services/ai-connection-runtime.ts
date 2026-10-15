@@ -37,6 +37,7 @@ export const AI_AUTH_ENV_KEYS = [
   "ANTHROPIC_AUTH_TOKEN",
   "CLAUDE_CODE_OAUTH_TOKEN",
   "OPENAI_API_KEY",
+  "N9ROUTE_API_KEY",
   "CODEX_API_KEY",
   "OPENROUTER_API_KEY",
   "XAI_API_KEY",
@@ -101,7 +102,7 @@ export async function assertManagedAiProjectAuth(
   const files =
     provider === "anthropic"
       ? [".claude/settings.json", ".claude/settings.local.json"]
-      : provider === "openai"
+      : provider === "openai" || provider === "9route"
         ? [".codex/config.toml"]
         : [];
   const pattern =
@@ -326,12 +327,25 @@ export async function prepareManagedAiRuntime(
     if (!routing && subscriptionFile) await writeFile(authFile, value, { mode: 0o600 });
     else if (!routing) env[capability.envKey] = value;
     if (
-      !routing && input.binding.provider === "openai" &&
+      !routing && (input.binding.provider === "openai" || input.binding.provider === "9route") &&
       selection.attribution.method === "api_key"
     ) {
       env.CODEX_API_KEY = value;
       await writeFile(authFile, JSON.stringify({ OPENAI_API_KEY: value }), {
         mode: 0o600,
+      });
+    }
+    if (!routing && input.binding.provider === "9route") {
+      env.OPENAI_API_KEY = value;
+      env.PAPERCLIP_CODEX_PROVIDERS = JSON.stringify({
+        providers: {
+          "9router": {
+            name: "9route",
+            base_url: process.env.AUTOAGENT_9ROUTE_BASE_URL,
+            env_key: "N9ROUTE_API_KEY",
+          },
+        },
+        model_provider: "9router",
       });
     }
     if (!routing && input.binding.provider === "openrouter") {

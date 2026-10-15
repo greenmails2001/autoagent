@@ -21,6 +21,7 @@ import { configuredEnvironmentProjection } from "../../vendor/paperclip-runner/i
 import { buildAgentIdentityEnv } from "@paperclipai/adapter-utils/server-utils";
 import { externalObjectService } from "../external-objects.js";
 import { isAgentDirectoryCopy } from "../agent-directory-working-copies.js";
+import { routeRuntimeMcpUrl } from "../runtime-mcp-routing.js";
 import { restoreNativeWorkspaceBestEffort } from "../native-runtime/native-workspace-best-effort.js";
 import {
   withNativeWorkspaceFinalizationOwnership,
@@ -762,7 +763,10 @@ export async function executeHeartbeatRuntime(db: Db, input: HeartbeatRuntimeExe
         });
       }
       if (authToken && configuredPaperclipApiBaseUrl() && issueRef) {
-        runtimeMcpServers.unshift({ name: "Paperclip projects", url: `${paperclipApiBaseUrl()}/api/mcp/project-tools`,
+        runtimeMcpServers.unshift({ name: "Paperclip projects", url: routeRuntimeMcpUrl(
+          `${paperclipApiBaseUrl()}/api/mcp/project-tools`,
+          "project-tools",
+        ),
           token: authToken, connectionId: "paperclip-project-tools" });
       }
       const runtimeMcp = createAdapterRuntimeMcpAccess(runtimeMcpServers);
