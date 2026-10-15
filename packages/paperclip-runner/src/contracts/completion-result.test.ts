@@ -64,6 +64,11 @@ describe("provider-neutral completion result schema", () => {
       expect(summary.description).toContain(
         "Never claim delivery without a confirmed receipt",
       );
+      expect(summary.description).toContain("current outcome, whether anything is broken");
+      expect(summary.description).toContain("what the reader needs to do, and what happens next");
+      expect(summary.description).toContain("Audit details");
+      expect(summary.description).toContain("no evidence of failure in the checked scope");
+      expect(summary.description).toContain("never claim the system is healthy without evidence");
     }
     for (const schema of [
       PRP_COMPLETION_RESULT_OUTPUT_SCHEMA,
@@ -75,6 +80,19 @@ describe("provider-neutral completion result schema", () => {
         "not in the top-level user-facing summary",
       );
       expect(summary.description).toContain("not the answer to the user's request");
+    }
+  });
+
+  it("requires blocked summaries to explain the wait in plain language", () => {
+    for (const schema of [
+      PRP_BLOCK_RESULT_OUTPUT_SCHEMA,
+      PRP_BLOCK_RESULT_PROVIDER_INPUT_SCHEMA,
+    ]) {
+      expect(schema.properties.summary.description).toContain(
+        "Blocked means waiting, not automatically broken",
+      );
+      expect(schema.properties.summary.description).toContain("who must act");
+      expect(schema.properties.summary.description).toContain("what reply confirms completion");
     }
   });
 
