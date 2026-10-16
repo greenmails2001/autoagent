@@ -49,6 +49,11 @@ describeEmbeddedPostgres("Facebook ingest plugin migration", () => {
       VALUES ('Facebook Ingest Test', 'FBIT')
       RETURNING id
     `;
+    const [{ id: secondCompanyId }] = await sql<{ id: string }[]>`
+      INSERT INTO public.companies (name, issue_prefix)
+      VALUES ('Facebook Ingest Tenant Two', 'FBTT')
+      RETURNING id
+    `;
 
     const upsert = async (contentHash: string, text: string) => sql.unsafe(
       `INSERT INTO ${NAMESPACE}.facebook_shared_posts
@@ -80,12 +85,28 @@ describeEmbeddedPostgres("Facebook ingest plugin migration", () => {
     `;
     await upsert(current!.content_hash, current!.shared_post.text);
 
+    await sql.unsafe(
+      `INSERT INTO ${NAMESPACE}.facebook_shared_posts
+        (company_id, schema_version, source, dedup_key, content_hash, relationship_type,
+         shared_post, original_post, crawl_status, collected_at)
+       VALUES ($1, 'facebook_shared_post.v1', 'facebook', 'post:shared-1', $2, 'original',
+         '{}'::jsonb, $3::jsonb, 'complete', now())`,
+      [secondCompanyId, "d".repeat(64), JSON.stringify(null)],
+    );
+
     const rows = await sql<{ count: string; revision: number }[]>`
       SELECT count(*)::text AS count, max(revision)::integer AS revision
       FROM ${sql(NAMESPACE)}.facebook_shared_posts
       WHERE company_id = ${companyId} AND dedup_key = 'post:shared-1'
     `;
     expect(rows[0]).toEqual({ count: "1", revision: 2 });
+
+    const tenantRows = await sql<{ count: string }[]>`
+      SELECT count(*)::text AS count
+      FROM ${sql(NAMESPACE)}.facebook_shared_posts
+      WHERE source = 'facebook' AND dedup_key = 'post:shared-1'
+    `;
+    expect(tenantRows[0]?.count).toBe("2");
 
     await expect(
       sql.unsafe(

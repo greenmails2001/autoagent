@@ -28,7 +28,11 @@ CREATE TABLE plugin_facebook_ingest_c37e6c4382.facebook_shared_posts (
   CONSTRAINT facebook_shared_posts_revision_check
     CHECK (revision > 0),
   CONSTRAINT facebook_shared_posts_original_shape_check
-    CHECK (original_post IS NULL OR jsonb_typeof(original_post) = 'object'),
+    CHECK (
+      original_post IS NULL
+      OR original_post = 'null'::jsonb
+      OR jsonb_typeof(original_post) = 'object'
+    ),
   CONSTRAINT facebook_shared_posts_shared_shape_check
     CHECK (jsonb_typeof(shared_post) = 'object')
 );
