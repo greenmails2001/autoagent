@@ -87,11 +87,11 @@ describeEmbeddedPostgres("Facebook ingest plugin migration", () => {
 
     await sql.unsafe(
       `INSERT INTO ${NAMESPACE}.facebook_shared_posts
-        (company_id, schema_version, source, dedup_key, content_hash, relationship_type,
+       (company_id, schema_version, source, dedup_key, content_hash, relationship_type,
          shared_post, original_post, crawl_status, collected_at)
        VALUES ($1, 'facebook_shared_post.v1', 'facebook', 'post:shared-1', $2, 'original',
-         '{}'::jsonb, $3::jsonb, 'complete', now())`,
-      [secondCompanyId, "d".repeat(64), JSON.stringify(null)],
+         '{}'::jsonb, 'null'::jsonb, 'complete', now())`,
+      [secondCompanyId, "d".repeat(64)],
     );
 
     const rows = await sql<{ count: string; revision: number }[]>`
