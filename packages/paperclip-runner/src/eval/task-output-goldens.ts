@@ -132,9 +132,12 @@ export function evaluateTaskOutputGolden(fixture: TaskOutputGolden): string[] {
     if (!fixture.output.includes(evidence)) errors.push(`missing audit evidence: ${evidence}`);
   }
   const opening = fixture.output.split("Audit details", 1)[0]!.toLowerCase();
-  if (fixture.forbiddenOpeningTerms?.some((term) => opening.startsWith(term.toLowerCase()))) {
+  const outcomeIndex = opening.indexOf(fixture.outcome.toLowerCase());
+  if (fixture.forbiddenOpeningTerms?.some((term) => {
+    const termIndex = opening.indexOf(term.toLowerCase());
+    return termIndex >= 0 && (outcomeIndex < 0 || termIndex < outcomeIndex);
+  })) {
     errors.push("internal terminology appears before the plain-language opening");
   }
   return [...new Set(errors)];
 }
-

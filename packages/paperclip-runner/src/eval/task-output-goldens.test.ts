@@ -51,4 +51,15 @@ describe("TaskAgent behavioral output goldens", () => {
       "internal terminology appears before the plain-language opening",
     );
   });
+
+  it("rejects a prefixed label that leads with internal terminology", () => {
+    const route = structuredClone(
+      TASK_OUTPUT_GOLDENS.find((fixture) => fixture.id === "9route_blocked")!,
+    );
+    route.output = `Trạng thái: identity binding chưa pass capability gate. ${route.output}`;
+
+    expect(evaluateTaskOutputGolden(route)).toContain(
+      "internal terminology appears before the plain-language opening",
+    );
+  });
 });

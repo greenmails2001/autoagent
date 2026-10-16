@@ -38,4 +38,3 @@ If the gate fails, keep v7 in the internal ring, revise policy/goldens, and repe
 ## Artifact
 
 Use `doc/task-agent-output-pilot-record.csv` as the append-only pilot evidence artifact. One row represents one participant/scenario attempt. The committed file contains headers only; humans conducting the pilot add observations and review them before broad release.
-
