@@ -25,6 +25,16 @@ export interface NativeRuntimeContextSnapshot {
   skills: Array<{ key: string; runtimeName: string; versionId: string | null; bundle: NativeRuntimeAssetReference }>;
   mcp: { assignmentSetId: string; digest: string; bindingId: string | null };
   connectionInstructions?: { text: string; digest: string };
+  presentationProfile?: {
+    requestedId: string | null;
+    id: string;
+    version: string;
+    text: string;
+    digest: string;
+    fallbackReason: "not_assigned" | "unknown_profile" | null;
+    runtimeName: "task-output-profile";
+    providerBindings: { codex: "SKILL.md"; claude: "skill-plugin" };
+  };
   aggregateDigest: string;
 }
 
@@ -90,6 +100,7 @@ function aggregatePayload(value: Omit<NativeRuntimeContextSnapshot, "aggregateDi
     // provider-session rotation when policy has not changed.
     mcp: { assignmentSetId: value.mcp.assignmentSetId, digest: value.mcp.digest },
     ...(value.connectionInstructions ? { connectionInstructions: value.connectionInstructions } : {}),
+    ...(value.presentationProfile ? { presentationProfile: value.presentationProfile } : {}),
   };
 }
 
@@ -101,7 +112,7 @@ export function nativeRuntimePromptDigest(): string { return sha256(PAPERCLIP_EX
 
 export function parseNativeRuntimeContext(value: unknown): NativeRuntimeContextSnapshot {
   const context = object(value, "input.runtimeContext");
-  exact(context, ["prompt", "instructions", "skills", "mcp", "connectionInstructions", "aggregateDigest"], "input.runtimeContext");
+  exact(context, ["prompt", "instructions", "skills", "mcp", "connectionInstructions", "presentationProfile", "aggregateDigest"], "input.runtimeContext");
   const prompt = object(context.prompt, "input.runtimeContext.prompt");
   exact(prompt, ["revision", "text", "digest"], "input.runtimeContext.prompt");
   // New runs use the current constants. Recovery uses the immutable saved
@@ -142,6 +153,29 @@ export function parseNativeRuntimeContext(value: unknown): NativeRuntimeContextS
     if (sha256(content) !== contentDigest) throw new NativeRuntimeContextError("Connection instruction digest does not match text");
     connectionInstructions = { text: content, digest: contentDigest };
   }
+  let presentationProfile: NativeRuntimeContextSnapshot["presentationProfile"];
+  if (context.presentationProfile !== undefined) {
+    const block = object(context.presentationProfile, "input.runtimeContext.presentationProfile");
+    exact(block, ["requestedId", "id", "version", "text", "digest", "fallbackReason", "runtimeName", "providerBindings"], "input.runtimeContext.presentationProfile");
+    const content = text(block.text, "input.runtimeContext.presentationProfile.text");
+    const contentDigest = digest(block.digest, "input.runtimeContext.presentationProfile.digest");
+    if (sha256(content) !== contentDigest) throw new NativeRuntimeContextError("Presentation profile digest does not match text");
+    const providerBindings = object(block.providerBindings, "input.runtimeContext.presentationProfile.providerBindings");
+    exact(providerBindings, ["codex", "claude"], "input.runtimeContext.presentationProfile.providerBindings");
+    if (providerBindings.codex !== "SKILL.md" || providerBindings.claude !== "skill-plugin") throw new NativeRuntimeContextError("Presentation profile provider binding is unsupported");
+    if (block.runtimeName !== "task-output-profile") throw new NativeRuntimeContextError("Presentation profile runtime name is unsupported");
+    if (block.fallbackReason !== null && block.fallbackReason !== "not_assigned" && block.fallbackReason !== "unknown_profile") throw new NativeRuntimeContextError("Presentation profile fallback reason is unsupported");
+    presentationProfile = {
+      requestedId: block.requestedId === null ? null : text(block.requestedId, "input.runtimeContext.presentationProfile.requestedId"),
+      id: text(block.id, "input.runtimeContext.presentationProfile.id"),
+      version: text(block.version, "input.runtimeContext.presentationProfile.version"),
+      text: content,
+      digest: contentDigest,
+      fallbackReason: block.fallbackReason as "not_assigned" | "unknown_profile" | null,
+      runtimeName: "task-output-profile",
+      providerBindings: { codex: "SKILL.md", claude: "skill-plugin" },
+    };
+  }
   const parsed = {
     prompt: { revision: promptRevision, text: promptText, digest: promptDigest },
     instructions: {
@@ -160,6 +194,7 @@ export function parseNativeRuntimeContext(value: unknown): NativeRuntimeContextS
       bindingId: mcp.bindingId === null ? null : text(mcp.bindingId, "input.runtimeContext.mcp.bindingId"),
     },
     ...(connectionInstructions ? { connectionInstructions } : {}),
+    ...(presentationProfile ? { presentationProfile } : {}),
   } satisfies Omit<NativeRuntimeContextSnapshot, "aggregateDigest">;
   const aggregateDigest = digest(context.aggregateDigest, "input.runtimeContext.aggregateDigest");
   if (aggregateDigest !== canonicalNativeRuntimeContextDigest(parsed)) {
@@ -173,6 +208,7 @@ export function composeNativeSystemInstructions(context: NativeRuntimeContextSna
     context.prompt.text,
     entryContent.trim(),
     context.connectionInstructions?.text,
+    context.presentationProfile?.text,
     context.instructions.workingCopy?.kind === "agent_files"
       ? `Your persistent agent directory (AGENT_HOME) is ${context.instructions.workingCopy.rootPath}. This is the current turn's copy; its absolute path may change between turns. In shell commands, use the current $AGENT_HOME environment variable instead of an absolute agent-directory path from an earlier turn. Your instruction entry is ${context.instructions.workingCopy.entryPath}, relative to that directory. All supported files and subfolders there are restored across tasks and sessions, and collected after this provider stops. Write task deliverables in the task working directory. Only changed or deleted files synchronize; the last sync wins for the same file. Temporary copies are cleaned up without retaining file history. Check the save receipt before claiming persistence.`
       : context.instructions.workingCopy

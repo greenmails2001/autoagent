@@ -19,6 +19,7 @@ import {
   canonicalNativeRuntimeContextDigest,
   nativeRuntimePromptDigest,
   parseNativeRuntimeContext,
+  resolveTaskOutputProfile,
   type NativeRuntimeAssetReference,
   type NativeRuntimeContextSnapshot,
 } from "../../vendor/paperclip-runner/index.js";
@@ -255,6 +256,11 @@ export async function buildNativeRuntimeContext(input: { db: Db; agent: RuntimeA
     instructions: { ...instructions, ...(input.instructionWorkingCopy ? { workingCopy: input.instructionWorkingCopy } : {}) },
     skills,
     mcp,
+    presentationProfile: resolveTaskOutputProfile(
+      typeof input.runtimeConfig.taskOutputProfile === "string"
+        ? input.runtimeConfig.taskOutputProfile
+        : null,
+    ),
     ...(input.runtimeConfig.paperclipConnectionInstructions ? {
       connectionInstructions: input.runtimeConfig.paperclipConnectionInstructions as { text: string; digest: string },
     } : {}),

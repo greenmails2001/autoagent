@@ -100,6 +100,21 @@ afterEach(async () => {
 });
 
 describe("buildNativeRuntimeContext", () => {
+  it("snapshots a server-assigned presentation profile with fail-closed fallback", async () => {
+    serviceMocks.exportFiles.mockResolvedValue({ entryFile: "AGENTS.md", files: { "AGENTS.md": "Agent instructions\n" } });
+    const input = {
+      db: {} as Db,
+      agent: { id: "agent-1", companyId: "company-1", name: "Reviewer", adapterType: "paperclip_runner", adapterConfig: {} },
+      runId: "run-1",
+      runtimeSkillEntries: [],
+    };
+    const assigned = await buildNativeRuntimeContext({ ...input, runtimeConfig: { taskOutputProfile: "plain-vietnamese.v1" } });
+    expect(assigned.presentationProfile).toMatchObject({ id: "plain-vietnamese", version: "1", requestedId: "plain-vietnamese.v1", fallbackReason: null });
+    expect(assigned.aggregateDigest).toHaveLength(64);
+
+    const fallback = await buildNativeRuntimeContext({ ...input, runtimeConfig: { taskOutputProfile: "missing.v9" } });
+    expect(fallback.presentationProfile).toMatchObject({ id: "core-default", requestedId: "missing.v9", fallbackReason: "unknown_profile" });
+  });
   it("uses committed instructions when the disk projection is stale", async () => {
     serviceMocks.exportFiles.mockResolvedValue({
       entryFile: "AGENTS.md",
