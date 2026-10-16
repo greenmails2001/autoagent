@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS plugin_facebook_ingest_c37e6c4382.facebook_ingest_snapshots;
+DROP TABLE IF EXISTS plugin_facebook_ingest_c37e6c4382.facebook_shared_posts;
