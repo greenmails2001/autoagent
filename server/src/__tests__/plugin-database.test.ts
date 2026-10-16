@@ -142,6 +142,26 @@ describe("plugin database SQL validation", () => {
     )).not.toThrow();
   });
 
+  it("rejects unqualified mutation targets in data-modifying CTE statements", () => {
+    expect(() => validatePluginRuntimeExecute(
+      `WITH upserted AS (
+         INSERT INTO plugin_test.rows (id) VALUES ($1)
+         RETURNING id
+       )
+       DELETE FROM issues`,
+      "plugin_test",
+    )).toThrow(/fully qualified/i);
+
+    expect(() => validatePluginRuntimeExecute(
+      `WITH removed AS (
+         DELETE FROM issues RETURNING id
+       )
+       INSERT INTO plugin_test.snapshots (row_id)
+       SELECT id FROM removed`,
+      "plugin_test",
+    )).toThrow(/fully qualified/i);
+  });
+
   it("targets anonymous DO blocks without rejecting do-prefixed aliases", () => {
     expect(() =>
       validatePluginRuntimeQuery(

@@ -20,8 +20,9 @@ This contract defines filters before an exploitation API is added. The API must 
 - `shared_from` and `shared_to` filter `sharedPost.sharedAt` and apply to the share object's timestamp.
 - `published_from` and `published_to` filter the searched content's `publishedAt`: `originalPost.publishedAt` for a share, otherwise `sharedPost.publishedAt`.
 - Bounds use RFC 3339 timestamps. `*_from` is inclusive and `*_to` is exclusive.
-- Default ordering is descending by the selected timestamp, then descending by row `id`.
-- Cursors encode the immutable pair `(sort_timestamp, id)`; clients must not use offset pagination.
+- `sort=shared_at` is the default and permits only `shared_*` date bounds. `sort=published_at` permits only `published_*` date bounds. Mixing the two bound families or using bounds that do not match `sort` is invalid.
+- Ordering is descending by the selected sort timestamp, then descending by row `id`. Rows with a null selected timestamp are excluded from that sorted query.
+- Cursors encode `(sort, sort_timestamp, id)`. The server must reject a cursor whose embedded `sort` differs from the request; clients must not use offset pagination.
 
 ### Storage boundary
 

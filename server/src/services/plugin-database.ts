@@ -187,6 +187,21 @@ function assertNoBannedSql(statement: string): void {
   }
 }
 
+function assertRuntimeMutationTargetsQualified(normalized: string, namespace: string): void {
+  const patterns = [
+    /(?:^|[(),])\s*insert\s+into\s+([a-z_][a-z0-9_]*(?:\.[a-z_][a-z0-9_]*)?)/g,
+    /(?:^|[(),])\s*update\s+([a-z_][a-z0-9_]*(?:\.[a-z_][a-z0-9_]*)?)/g,
+    /(?:^|[(),])\s*delete\s+from\s+([a-z_][a-z0-9_]*(?:\.[a-z_][a-z0-9_]*)?)/g,
+  ];
+  const targets = patterns.flatMap((pattern) => [...normalized.matchAll(pattern)].map((match) => match[1]!));
+  if (targets.length === 0 || targets.some((target) => !target.includes("."))) {
+    throw new Error("ctx.db.execute mutation targets must use fully qualified schema names");
+  }
+  if (targets.some((target) => target.split(".", 1)[0] !== namespace.toLowerCase())) {
+    throw new Error(`ctx.db.execute target must be inside plugin namespace "${namespace}"`);
+  }
+}
+
 export function validatePluginMigrationStatement(
   statement: string,
   namespace: string,
@@ -286,6 +301,7 @@ export function validatePluginRuntimeExecute(query: string, namespace: string): 
   if (!directMutation && !dataModifyingCte) {
     throw new Error("ctx.db.execute only allows INSERT, UPDATE, or DELETE");
   }
+  assertRuntimeMutationTargetsQualified(normalized, namespace);
   if (/\b(alter|create|drop|truncate)\b/.test(normalized)) {
     throw new Error("ctx.db.execute cannot contain DDL keywords");
   }
