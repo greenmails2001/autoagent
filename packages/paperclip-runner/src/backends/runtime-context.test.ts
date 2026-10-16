@@ -413,6 +413,30 @@ describe("explicit task skill selection", () => {
       expect(nativeTaskSkillInputs(description, context)).toEqual([]);
     }
   });
+  it("automatically loads the server-assigned output profile for Codex without a task reference", () => {
+    const profileContext = {
+      ...context,
+      presentationProfile: {
+        runtimeName: "task-output-profile",
+      },
+      skills: [
+        ...context.skills,
+        {
+          key: "system/task-output-profile",
+          runtimeName: "task-output-profile",
+          bundle: { rootPath: "/assigned/output-profile" },
+        },
+      ],
+    } as unknown as import("../contracts/runtime-context.js").NativeRuntimeContextSnapshot;
+
+    expect(nativeTaskSkillInputs("Write a welcome note", profileContext)).toEqual([
+      {
+        type: "skill",
+        name: "task-output-profile",
+        path: "/assigned/output-profile/SKILL.md",
+      },
+    ]);
+  });
   it("supports generic explicit references, deduplicates them, and ignores unassigned skills", () => {
     expect(nativeTaskSkillInputs("$research then /research and /not-assigned", context)).toEqual([
       { type: "skill", name: "research", path: "/assigned/research/SKILL.md" },

@@ -37,6 +37,27 @@ function savedContext(revision: string, text: string) {
 }
 
 describe("persisted native execution prompts", () => {
+  it("automatically composes a trusted presentation profile without explicit skill invocation", () => {
+    const persisted = savedContext(PAPERCLIP_EXECUTION_PROMPT_REVISION, PAPERCLIP_EXECUTION_PROMPT);
+    const profileText = "Write for an operator and preserve audit evidence.";
+    const withProfile = {
+      ...persisted,
+      presentationProfile: {
+        requestedId: "operator.v1",
+        id: "operator",
+        version: "1",
+        text: profileText,
+        digest: hash(profileText),
+        fallbackReason: null,
+        runtimeName: "task-output-profile",
+        providerBindings: { codex: "SKILL.md", claude: "skill-plugin" },
+      },
+    };
+    withProfile.aggregateDigest = canonicalNativeRuntimeContextDigest(withProfile);
+    const parsed = parseNativeRuntimeContext(withProfile);
+    expect(composeNativeSystemInstructions(parsed, "Agent instructions")).toContain(profileText);
+    expect(parsed.presentationProfile?.providerBindings).toEqual({ codex: "SKILL.md", claude: "skill-plugin" });
+  });
   it.each([
     ["snapshot-before-upgrade", "Saved instructions from before the upgrade."],
     ["future-prompt-fixture", "  Saved instructions absent from this release.\n"],

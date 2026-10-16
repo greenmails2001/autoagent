@@ -137,8 +137,9 @@ export function nativeTaskSkillInputs(
   description: string | null,
   context: NativeRuntimeContextSnapshot | null,
 ): NativeSkillInput[] {
-  if (!description || !context) return [];
+  if (!context) return [];
   const names = new Set(explicitTaskSkillNames(description, context.skills.map((skill) => skill.runtimeName)));
+  if (context.presentationProfile) names.add(context.presentationProfile.runtimeName);
   return context.skills
     .filter((skill) => names.has(skill.runtimeName))
     .map((skill) => ({

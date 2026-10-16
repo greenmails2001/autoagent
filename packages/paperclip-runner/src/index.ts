@@ -13,6 +13,7 @@ export * from "./contracts/provider-mode.js";
 export * from "./contracts/native-session-backend.js";
 export * from "./contracts/question-set.js";
 export * from "./contracts/runtime-context.js";
+export * from "./contracts/output-profiles.js";
 export * from "./contracts/types.js";
 export * from "./backends/harness-driver-backend.js";
 export * from "./drivers/dot/dot-harness-driver.js";

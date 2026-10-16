@@ -19,6 +19,7 @@ import {
   canonicalNativeRuntimeContextDigest,
   nativeRuntimePromptDigest,
   parseNativeRuntimeContext,
+  resolveTaskOutputProfile,
   type NativeRuntimeAssetReference,
   type NativeRuntimeContextSnapshot,
 } from "../../vendor/paperclip-runner/index.js";
@@ -245,16 +246,36 @@ export async function resolveNativeRuntimeMcpSnapshot(input: { db: Db; agent: Pi
 }
 
 export async function buildNativeRuntimeContext(input: { db: Db; agent: RuntimeAgent; runId: string; runtimeConfig: Record<string, unknown>; runtimeSkillEntries: PaperclipSkillEntry[]; instructionWorkingCopy?: { rootPath: string; entryPath: string; kind?: "agent_files" } }): Promise<NativeRuntimeContextSnapshot> {
-  const [instructions, skills, mcp] = await Promise.all([
+  const presentationProfile = resolveTaskOutputProfile(
+    typeof input.runtimeConfig.taskOutputProfile === "string"
+      ? input.runtimeConfig.taskOutputProfile
+      : null,
+  );
+  const profileSkillText = `---\nname: ${presentationProfile.runtimeName}\ndescription: Server-assigned TaskAgent output presentation profile.\n---\n${presentationProfile.text}\n`;
+  const [instructions, assignedSkills, profileBundle, mcp] = await Promise.all([
     materializeInstructionBundle(input.db, input.agent, input.instructionWorkingCopy?.kind === "agent_files"),
     materializeSelectedSkills(input.runtimeConfig, input.runtimeSkillEntries, input.agent.adapterType === "paperclip_runner"),
+    materializeAsset([{ path: "SKILL.md", content: Buffer.from(profileSkillText, "utf8"), mode: 0o444 }]),
     resolveNativeRuntimeMcpSnapshot({ db: input.db, agent: input.agent, runId: input.runId }),
   ]);
+  if (assignedSkills.some((skill) => skill.runtimeName === presentationProfile.runtimeName)) {
+    throw new Error(`assigned runtime skill uses reserved name: ${presentationProfile.runtimeName}`);
+  }
+  const skills = [
+    ...assignedSkills,
+    {
+      key: "system/task-output-profile",
+      runtimeName: presentationProfile.runtimeName,
+      versionId: `${presentationProfile.id}.v${presentationProfile.version}`,
+      bundle: profileBundle,
+    },
+  ];
   const snapshot = {
     prompt: { revision: PAPERCLIP_EXECUTION_PROMPT_REVISION, text: PAPERCLIP_EXECUTION_PROMPT, digest: nativeRuntimePromptDigest() },
     instructions: { ...instructions, ...(input.instructionWorkingCopy ? { workingCopy: input.instructionWorkingCopy } : {}) },
     skills,
     mcp,
+    presentationProfile,
     ...(input.runtimeConfig.paperclipConnectionInstructions ? {
       connectionInstructions: input.runtimeConfig.paperclipConnectionInstructions as { text: string; digest: string },
     } : {}),

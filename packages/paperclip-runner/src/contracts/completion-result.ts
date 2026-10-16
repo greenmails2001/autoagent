@@ -168,7 +168,7 @@ const commonResultProperties = {
     type: "string",
     minLength: 1,
     description:
-      "The complete user-facing answer for this turn. Do not replace the requested answer with routine work/control bookkeeping. Include the requested result and any genuine actionable failure, limitation, or required user action. Unless explicitly requested, omit routine preparation, unconfirmed-delivery, and wait/review status; put the response-wake reason in continuation.summary. Never claim delivery without a confirmed receipt.",
+      "The complete user-facing answer for this turn. Open in plain language with the current outcome, whether anything is broken, what the reader needs to do, and what happens next. If verification is incomplete, say there is no evidence of failure in the checked scope; never claim the system is healthy without evidence. Do not replace the requested answer with routine work/control bookkeeping. Include the requested result and any genuine actionable failure, limitation, or required user action. Unless explicitly requested, omit routine preparation, unconfirmed-delivery, and wait/review status; put the response-wake reason in continuation.summary. Put internal terms after their practical meaning or define them at first use. Preserve technical evidence after the guidance in an Audit details section. Never claim delivery without a confirmed receipt.",
   },
   completionClaim: completionClaimSchema,
   evidence: evidenceSchema,
@@ -226,6 +226,10 @@ export const PRP_BLOCK_RESULT_OUTPUT_SCHEMA = {
   ],
   properties: {
     ...commonResultProperties,
+    summary: {
+      ...commonResultProperties.summary,
+      description: `${commonResultProperties.summary.description} Blocked means waiting, not automatically broken: say what is already working, what is awaited, who must act, where and by when or under what condition, and what reply confirms completion.`,
+    },
     reportedWorkDisposition: { type: "string", const: "blocked" },
     attentionRequests: { type: "array", maxItems: 0, items: attentionRequestsSchema.items },
     blocker: {
@@ -395,6 +399,7 @@ export const PRP_BLOCK_RESULT_PROVIDER_INPUT_SCHEMA = {
   ],
   properties: {
     ...providerCommonResultProperties,
+    summary: PRP_BLOCK_RESULT_OUTPUT_SCHEMA.properties.summary,
     reportedWorkDisposition: { type: "string", const: "blocked" },
     verification: providerVerificationCompatibilitySchema,
     attentionRequests: providerAttentionCompatibilitySchema,

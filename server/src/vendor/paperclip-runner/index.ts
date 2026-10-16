@@ -120,6 +120,7 @@ export const retainedRunnerdMaintenanceIsIdle =
 export const drainRetainedRunnerdMaintenanceOperations =
   runner.drainRetainedRunnerdMaintenanceOperations;
 export const nativeRuntimePromptDigest = runner.nativeRuntimePromptDigest;
+export const resolveTaskOutputProfile = runner.resolveTaskOutputProfile;
 export const normalizePrpResultSignals = runner.normalizePrpResultSignals;
 export const parseCodexTurnDiff = runner.parseCodexTurnDiff;
 export const parseHarnessRuntimeRequestResolution =
