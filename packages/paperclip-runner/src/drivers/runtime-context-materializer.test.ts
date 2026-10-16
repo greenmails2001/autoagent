@@ -1,4 +1,7 @@
 import {
+  createHash,
+} from "node:crypto";
+import {
   chmod,
   lstat,
   mkdtemp,
@@ -368,6 +371,34 @@ command = "untrusted-command"
         entry.startsWith(".paperclip-skills-"),
       ),
     ).toEqual([]);
+  });
+
+  it("loads the assigned output profile as a Claude skill-plugin without a task mention", async () => {
+    const root = await mkdtemp(join(tmpdir(), "paperclip-runtime-profile-"));
+    roots.push(root);
+    const profileRoot = join(root, "profile-source");
+    const instructions = join(root, "instructions-source");
+    const skillsHome = join(root, "claude-home", "skills");
+    await Promise.all([mkdir(profileRoot), mkdir(instructions)]);
+    await writeFile(join(profileRoot, "SKILL.md"), "---\nname: task-output-profile\n---\nWrite for operators.\n");
+    await writeFile(join(instructions, "AGENTS.md"), "Instructions\n");
+    const profileContext = context(profileRoot, instructions, "task-output-profile");
+    profileContext.skills[0]!.key = "system/task-output-profile";
+    profileContext.presentationProfile = {
+      requestedId: "operator.v1",
+      id: "operator",
+      version: "1",
+      text: "Write for operators.",
+      digest: createHash("sha256").update("Write for operators.").digest("hex"),
+      fallbackReason: null,
+      runtimeName: "task-output-profile",
+      providerBindings: { codex: "SKILL.md", claude: "skill-plugin" },
+    };
+
+    await materializeNativeRuntimeSkills(profileContext, skillsHome);
+
+    await expect(readFile(join(skillsHome, "task-output-profile", "SKILL.md"), "utf8"))
+      .resolves.toContain("Write for operators.");
   });
 
   it("cleans private staging when fresh publication fails", async () => {

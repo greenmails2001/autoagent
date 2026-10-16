@@ -6,7 +6,7 @@ The core output invariant remains mandatory. Profiles are additive, server-selec
 
 Set `agent.runtimeConfig.taskOutputProfile` to a versioned profile ID: `plain-vietnamese.v1`, `developer.v1`, `operator.v1`, or `approver.v1`. Missing assignment and unknown IDs fail closed to `core-default.v1`. The runtime snapshot records requested ID, effective ID/version, text digest, fallback reason, runtime name, and provider binding metadata.
 
-Codex receives the trusted profile content through its native system-instruction adapter, equivalent to an assigned `SKILL.md` without depending on `/skill` discovery. Claude/ACPX receives the same immutable content through its system/plugin instruction channel, equivalent to an assigned skill-plugin. Provider-specific discovery remains optional; the authoritative server snapshot is always composed.
+The server materializes the selected profile as an immutable, content-addressed `task-output-profile/SKILL.md` assignment. Codex receives that skill input automatically even when the task never names it. Claude/ACPX installs the same snapshot in its isolated skill-plugin directory while the authoritative profile text remains in system instructions, so presentation does not depend on the model choosing to invoke a skill. A missing asset or reserved-name collision aborts context creation instead of weakening the core contract.
 
 ## Canary
 

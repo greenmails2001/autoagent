@@ -110,10 +110,19 @@ describe("buildNativeRuntimeContext", () => {
     };
     const assigned = await buildNativeRuntimeContext({ ...input, runtimeConfig: { taskOutputProfile: "plain-vietnamese.v1" } });
     expect(assigned.presentationProfile).toMatchObject({ id: "plain-vietnamese", version: "1", requestedId: "plain-vietnamese.v1", fallbackReason: null });
+    const profileSkill = assigned.skills.find((skill) => skill.runtimeName === "task-output-profile");
+    expect(profileSkill).toMatchObject({
+      key: "system/task-output-profile",
+      versionId: "plain-vietnamese.v1",
+    });
+    expect(await readFile(path.join(profileSkill!.bundle.rootPath, "SKILL.md"), "utf8"))
+      .toContain("Write natural Vietnamese for a non-technical reader.");
     expect(assigned.aggregateDigest).toHaveLength(64);
 
     const fallback = await buildNativeRuntimeContext({ ...input, runtimeConfig: { taskOutputProfile: "missing.v9" } });
     expect(fallback.presentationProfile).toMatchObject({ id: "core-default", requestedId: "missing.v9", fallbackReason: "unknown_profile" });
+    expect(fallback.skills.find((skill) => skill.runtimeName === "task-output-profile"))
+      .toMatchObject({ versionId: "core-default.v1" });
   });
   it("uses committed instructions when the disk projection is stale", async () => {
     serviceMocks.exportFiles.mockResolvedValue({
@@ -311,9 +320,9 @@ describe("buildNativeRuntimeContext", () => {
     expect(await readFile(path.join(context.instructions.bundle.rootPath, "references", "policy.md"), "utf8"))
       .toBe("Company policy sibling.\n");
     const unselected = await buildNativeRuntimeContext({ ...input, runtimeConfig: {} });
-    expect(unselected.skills).toEqual([]);
-    expect(context.skills).toHaveLength(1);
-    expect(context.skills[0]).toMatchObject({
+    expect(unselected.skills.map((skill) => skill.key)).toEqual(["system/task-output-profile"]);
+    expect(context.skills).toHaveLength(2);
+    expect(context.skills.find((skill) => skill.key === "company-1/reviewer")).toMatchObject({
       key: "company-1/reviewer",
       runtimeName: "reviewer",
       versionId: "version-1",
@@ -382,7 +391,10 @@ describe("buildNativeRuntimeContext", () => {
         },
       ],
     });
-    expect(context.skills.map((skill) => skill.key)).toEqual(["company-1/supported"]);
+    expect(context.skills.map((skill) => skill.key)).toEqual([
+      "company-1/supported",
+      "system/task-output-profile",
+    ]);
   });
 });
 
