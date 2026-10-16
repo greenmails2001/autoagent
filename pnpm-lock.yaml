@@ -745,6 +745,9 @@ importers:
 
   packages/plugins/plugin-facebook-ingest:
     devDependencies:
+      '@paperclipai/db':
+        specifier: workspace:*
+        version: link:../../db
       '@paperclipai/plugin-sdk':
         specifier: workspace:*
         version: link:../sdk
@@ -754,6 +757,9 @@ importers:
       esbuild:
         specifier: ^0.28.2
         version: 0.28.2
+      postgres:
+        specifier: ^3.4.9
+        version: 3.4.9(patch_hash=sryle6qd5qfmnxvoebal4gashi)
       typescript:
         specifier: ^7.0.2
         version: 7.0.2

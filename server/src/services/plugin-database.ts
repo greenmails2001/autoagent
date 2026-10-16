@@ -281,7 +281,9 @@ export function validatePluginRuntimeExecute(query: string, namespace: string): 
   const statement = statements[0]!;
   assertNoBannedSql(statement);
   const normalized = normaliseSql(statement);
-  if (!/^(insert\s+into|update|delete\s+from)\b/.test(normalized)) {
+  const directMutation = /^(insert\s+into|update|delete\s+from)\b/.test(normalized);
+  const dataModifyingCte = normalized.startsWith("with ") && /\b(insert\s+into|update|delete\s+from)\b/.test(normalized);
+  if (!directMutation && !dataModifyingCte) {
     throw new Error("ctx.db.execute only allows INSERT, UPDATE, or DELETE");
   }
   if (/\b(alter|create|drop|truncate)\b/.test(normalized)) {

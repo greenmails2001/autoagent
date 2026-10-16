@@ -129,6 +129,19 @@ describe("plugin database SQL validation", () => {
     ).toThrow(/namespace/i);
   });
 
+  it("allows one namespace-scoped data-modifying CTE for atomic plugin writes", () => {
+    expect(() => validatePluginRuntimeExecute(
+      `WITH upserted AS (
+         INSERT INTO plugin_test.rows (id) VALUES ($1)
+         ON CONFLICT (id) DO UPDATE SET id = EXCLUDED.id
+         RETURNING id
+       )
+       INSERT INTO plugin_test.snapshots (row_id)
+       SELECT id FROM upserted`,
+      "plugin_test",
+    )).not.toThrow();
+  });
+
   it("targets anonymous DO blocks without rejecting do-prefixed aliases", () => {
     expect(() =>
       validatePluginRuntimeQuery(

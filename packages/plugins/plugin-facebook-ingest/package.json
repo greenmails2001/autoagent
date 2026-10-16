@@ -11,9 +11,11 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "@paperclipai/db": "workspace:*",
     "@paperclipai/plugin-sdk": "workspace:*",
     "@types/node": "^24.0.0",
     "esbuild": "^0.28.2",
+    "postgres": "^3.4.9",
     "typescript": "^7.0.2",
     "vitest": "^5.0.3"
   },
