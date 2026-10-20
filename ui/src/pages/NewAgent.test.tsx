@@ -200,6 +200,29 @@ afterEach(async () => {
   container.remove();
 });
 describe("New agent setup", () => {
+  it("uses host-native Codex without a managed AI connection and keeps the selected model", async () => {
+    api.adapterModels.mockResolvedValue(["gpt-6.1-sol", "gpt-6-astra"]);
+
+    await render("codex_local");
+
+    expect(container.textContent).not.toContain("Connect a model");
+    expect(container.querySelector('[aria-label="Model"]')).not.toBeNull();
+    await fill("Model", "gpt-6-astra");
+    await click("Run test");
+    const testInput = api.testEnvironment.mock.calls.at(-1)?.[2];
+    expect(testInput).toMatchObject({
+      adapterConfig: expect.objectContaining({ model: "gpt-6-astra" }),
+    });
+    expect(testInput).not.toHaveProperty("aiConnection");
+
+    await click("Finish setup");
+    expect(api.hire.mock.calls[0][1]).toMatchObject({
+      adapterType: "codex_local",
+      adapterConfig: expect.objectContaining({ model: "gpt-6-astra" }),
+    });
+    expect(api.hire.mock.calls[0][1].runtimeConfig).not.toHaveProperty("aiConnection");
+  });
+
   it("creates Dot through its independent choice without CLI or model setup, then routes to pairing", async () => {
     settings.getExperimental.mockResolvedValue({ enableNativeRunner: false, enableOpenAiDot: true, enablePublicMcp: true });
     await render("paperclip_runner", "openai_dot");

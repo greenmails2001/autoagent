@@ -123,7 +123,7 @@ function Setup({
         : "codex_local"
     : adapterType;
   const connectionAdapter =
-    brandType === "claude_local" || brandType === "codex_local" || brandType === "grok_local"
+    brandType === "claude_local" || brandType === "grok_local"
       ? brandType
       : null;
   const multiProvider =
@@ -856,7 +856,7 @@ function Setup({
                           <ToggleField label="Allow externally billed provider" hint="Dot does not report token usage or cost. Paperclip cannot enforce a provider spend ceiling; known company and agent budget limits still apply."
                             checked={allowUnmeteredProvider} onChange={value => { setAllowUnmeteredProvider(value); resetTest(); }} />
                         </>}
-                        {!connectionAdapter && aiProviderForAdapter(brandType) && (
+                        {!connectionAdapter && brandType !== "codex_local" && aiProviderForAdapter(brandType) && (
                           <AiConnectionField companyId={companyId} agentName={name} adapterType={brandType} model={model} environmentId={environmentId ?? undefined} value={aiBinding}
                             onChange={binding => { binding.mode !== "router" && setRuntimeAiBinding(binding); resetTest(); }} />
                         )}
