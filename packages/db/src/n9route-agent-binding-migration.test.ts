@@ -4,6 +4,7 @@ import postgres from "postgres";
 import { describe, expect, it } from "vitest";
 import { applyPendingMigrations } from "./client.js";
 import { getEmbeddedPostgresTestSupport, startEmbeddedPostgresTestDatabase } from "./test-embedded-postgres.js";
+import { captureN9routeAgentBindingSnapshot, restoreN9routeAgentBindingSnapshot } from "./n9route-agent-binding-rollback.js";
 
 const support = await getEmbeddedPostgresTestSupport();
 
@@ -41,6 +42,13 @@ const support = await getEmbeddedPostgresTestSupport();
           (${ids.claude}, ${companyId}, 'Claude Agent', 'engineer', 'claude_local', '{"model":"cx/gpt-6-sol"}', '{"keep":4}'),
           (${ids.barePrefix}, ${companyId}, 'Bare Prefix', 'engineer', 'codex_local', '{"model":"cx/"}', '{"keep":5}')
       `;
+      const rollbackSnapshot = await captureN9routeAgentBindingSnapshot(sql);
+      expect(rollbackSnapshot).toEqual(expect.arrayContaining([
+        { agentId: ids.designer, hadAiConnection: false, aiConnection: null },
+        { agentId: ids.otherRole, hadAiConnection: false, aiConnection: null },
+        { agentId: ids.nullBinding, hadAiConnection: true, aiConnection: null },
+        { agentId: ids.malformedBinding, hadAiConnection: true, aiConnection: { mode: "responsible_user", method: "api_key" } },
+      ]));
       const protectedBefore = await sql`
         SELECT
           (SELECT count(*)::int FROM connection_grants) AS grants,
@@ -69,6 +77,23 @@ const support = await getEmbeddedPostgresTestSupport();
       expect(afterRerun.map((row) => [row.id, row.runtime_config, row.updated_at])).toEqual(
         rows.map((row) => [row.id, row.runtime_config, firstUpdatedAt.get(row.id)]),
       );
+      expect(await sql`
+        SELECT
+          (SELECT count(*)::int FROM connection_grants) AS grants,
+          (SELECT count(*)::int FROM ai_provider_defaults) AS provider_defaults,
+          (SELECT count(*)::int FROM ai_connection_defaults) AS connection_defaults
+      `).toEqual(protectedBefore);
+
+      await sql`UPDATE agents SET runtime_config = runtime_config || '{"afterMigration":{"retained":true}}'::jsonb WHERE company_id = ${companyId}`;
+      expect(await restoreN9routeAgentBindingSnapshot(sql, rollbackSnapshot)).toBe(4);
+      const restored = await sql`SELECT id, runtime_config FROM agents WHERE company_id = ${companyId} ORDER BY name`;
+      const restoredById = new Map(restored.map((row) => [row.id, row.runtime_config]));
+      expect(restoredById.get(ids.designer)).toEqual({ heartbeat: { enabled: true }, custom: { retained: true }, afterMigration: { retained: true } });
+      expect(restoredById.get(ids.otherRole)).toEqual({ heartbeat: { maxConcurrentRuns: 2 }, afterMigration: { retained: true } });
+      expect(restoredById.get(ids.nullBinding)).toEqual({ aiConnection: null, keep: 2, afterMigration: { retained: true } });
+      expect(restoredById.get(ids.malformedBinding)).toEqual({ aiConnection: { mode: "responsible_user", method: "api_key" }, keep: 6, afterMigration: { retained: true } });
+      expect(restoredById.get(ids.explicit)).toEqual({ aiConnection: { mode: "responsible_user", method: "api_key", provider: "openai" }, keep: 1, afterMigration: { retained: true } });
+      expect(await restoreN9routeAgentBindingSnapshot(sql, rollbackSnapshot)).toBe(0);
       expect(await sql`
         SELECT
           (SELECT count(*)::int FROM connection_grants) AS grants,
