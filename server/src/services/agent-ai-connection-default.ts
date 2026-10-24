@@ -30,9 +30,9 @@ export function ensureModelAiConnectionBinding(
   adapterConfig: Record<string, unknown>,
   runtimeConfig: Record<string, unknown>,
 ): Record<string, unknown> {
-  if (Object.prototype.hasOwnProperty.call(runtimeConfig, "aiConnection")) return runtimeConfig;
   const model = typeof adapterConfig.model === "string" ? adapterConfig.model.trim() : "";
   if (adapterType !== "codex_local" || !model.startsWith("cx/") || model.length <= 3) return runtimeConfig;
+  if (aiRuntimeConnectionBindingSchema.safeParse(runtimeConfig.aiConnection).success) return runtimeConfig;
   return { ...runtimeConfig, aiConnection: N9ROUTE_RESPONSIBLE_USER_BINDING };
 }
 

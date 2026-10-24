@@ -24,6 +24,7 @@ const support = await getEmbeddedPostgresTestSupport();
         otherRole: randomUUID(),
         explicit: randomUUID(),
         nullBinding: randomUUID(),
+        malformedBinding: randomUUID(),
         openAi: randomUUID(),
         claude: randomUUID(),
         barePrefix: randomUUID(),
@@ -35,6 +36,7 @@ const support = await getEmbeddedPostgresTestSupport();
           (${ids.otherRole}, ${companyId}, 'Cost Review Worker', 'quantity surveyor', 'codex_local', '{"model":"cx/gpt-6-sol"}', '{"heartbeat":{"maxConcurrentRuns":2}}'),
           (${ids.explicit}, ${companyId}, 'Explicit Binding', 'engineer', 'codex_local', '{"model":"cx/gpt-6-sol"}', '{"aiConnection":{"mode":"responsible_user","method":"api_key","provider":"openai"},"keep":1}'),
           (${ids.nullBinding}, ${companyId}, 'Manual Review', 'engineer', 'codex_local', '{"model":"cx/gpt-6-sol"}', '{"aiConnection":null,"keep":2}'),
+          (${ids.malformedBinding}, ${companyId}, 'Malformed Binding', 'engineer', 'codex_local', '{"model":"cx/gpt-6-sol"}', '{"aiConnection":{"mode":"responsible_user","method":"api_key"},"keep":6}'),
           (${ids.openAi}, ${companyId}, 'OpenAI Agent', 'engineer', 'codex_local', '{"model":"gpt-6-sol"}', '{"keep":3}'),
           (${ids.claude}, ${companyId}, 'Claude Agent', 'engineer', 'claude_local', '{"model":"cx/gpt-6-sol"}', '{"keep":4}'),
           (${ids.barePrefix}, ${companyId}, 'Bare Prefix', 'engineer', 'codex_local', '{"model":"cx/"}', '{"keep":5}')
@@ -53,7 +55,8 @@ const support = await getEmbeddedPostgresTestSupport();
       expect(byId.get(ids.designer)?.runtime_config).toEqual({ heartbeat: { enabled: true }, custom: { retained: true }, aiConnection: expected });
       expect(byId.get(ids.otherRole)?.runtime_config).toEqual({ heartbeat: { maxConcurrentRuns: 2 }, aiConnection: expected });
       expect(byId.get(ids.explicit)?.runtime_config).toEqual({ aiConnection: { mode: "responsible_user", method: "api_key", provider: "openai" }, keep: 1 });
-      expect(byId.get(ids.nullBinding)?.runtime_config).toEqual({ aiConnection: null, keep: 2 });
+      expect(byId.get(ids.nullBinding)?.runtime_config).toEqual({ aiConnection: expected, keep: 2 });
+      expect(byId.get(ids.malformedBinding)?.runtime_config).toEqual({ aiConnection: expected, keep: 6 });
       expect(byId.get(ids.openAi)?.runtime_config).toEqual({ keep: 3 });
       expect(byId.get(ids.claude)?.runtime_config).toEqual({ keep: 4 });
       expect(byId.get(ids.barePrefix)?.runtime_config).toEqual({ keep: 5 });

@@ -34,6 +34,23 @@ describe("model-derived AI connection binding", () => {
   });
 
   it.each([
+    null,
+    "9route",
+    {},
+    { mode: "responsible_user", method: "api_key" },
+    { mode: "shared", method: "api_key", provider: "9route" },
+  ])("normalizes a missing or malformed binding (%j) for cx models", (aiConnection) => {
+    expect(ensureModelAiConnectionBinding(
+      "codex_local",
+      { model: "cx/gpt-6-sol" },
+      { heartbeat: { enabled: true }, aiConnection },
+    )).toEqual({
+      heartbeat: { enabled: true },
+      aiConnection: { mode: "responsible_user", method: "api_key", provider: "9route" },
+    });
+  });
+
+  it.each([
     ["codex_local", { model: "gpt-6-sol" }],
     ["claude_local", { model: "cx/gpt-6-sol" }],
     ["codex_local", { model: "cx/" }],
