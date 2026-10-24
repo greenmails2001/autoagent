@@ -28,8 +28,42 @@ export async function restoreN9routeAgentBindingSnapshot(
   sql: Sql,
   snapshot: N9routeAgentBindingSnapshotRow[],
 ): Promise<number> {
-  let restored = 0;
-  await sql.begin(async (transaction) => {
+  return sql.begin(async (transaction) => {
+    const ids = snapshot.map((row) => row.agentId);
+    if (new Set(ids).size !== ids.length) {
+      throw new Error("Rollback snapshot contains duplicate agent IDs");
+    }
+    if (ids.length === 0) return 0;
+
+    const lockedRows = await transaction`
+      SELECT id, adapter_type, adapter_config, runtime_config
+      FROM agents
+      WHERE id IN ${transaction(ids)}
+      ORDER BY id
+      FOR UPDATE
+    `;
+    const lockedById = new Map(lockedRows.map((row) => [row.id, row]));
+    const normalized = { mode: "responsible_user", method: "api_key", provider: "9route" };
+    let alreadyRestored = 0;
+    for (const snapshotRow of snapshot) {
+      const current = lockedById.get(snapshotRow.agentId);
+      if (!current) throw new Error(`Rollback snapshot agent is missing: ${snapshotRow.agentId}`);
+      const model = typeof current.adapter_config?.model === "string" ? current.adapter_config.model : "";
+      if (current.adapter_type !== "codex_local" || !model.startsWith("cx/") || model.length <= 3) {
+        throw new Error(`Rollback snapshot agent is outside migration scope: ${snapshotRow.agentId}`);
+      }
+      const hasAiConnection = Object.prototype.hasOwnProperty.call(current.runtime_config, "aiConnection");
+      const currentAiConnection = current.runtime_config.aiConnection;
+      const matchesNormalized = jsonEqual(currentAiConnection, normalized);
+      const matchesOriginal = hasAiConnection === snapshotRow.hadAiConnection
+        && (!hasAiConnection || jsonEqual(currentAiConnection, snapshotRow.aiConnection));
+      if (matchesOriginal) alreadyRestored += 1;
+      else if (!matchesNormalized) throw new Error(`Rollback snapshot agent has conflicting binding: ${snapshotRow.agentId}`);
+    }
+    if (alreadyRestored === snapshot.length) return 0;
+    if (alreadyRestored !== 0) throw new Error("Rollback snapshot is partially restored; refusing a mixed-state batch");
+
+    let restored = 0;
     for (const row of snapshot) {
       const serializedAiConnection = JSON.stringify(row.aiConnection);
       if (row.hadAiConnection && serializedAiConnection === undefined) {
@@ -48,10 +82,15 @@ export async function restoreN9routeAgentBindingSnapshot(
           AND length(adapter_config ->> 'model') > 3
           AND runtime_config -> 'aiConnection' = '{"mode":"responsible_user","method":"api_key","provider":"9route"}'::jsonb
       `;
-      restored += result.count;
+      if (result.count !== 1) throw new Error(`Rollback update lost its locked row: ${row.agentId}`);
+      restored += 1;
     }
+    return restored;
   });
-  return restored;
+}
+
+function jsonEqual(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function invalidAiConnectionSql(sql: Sql) {

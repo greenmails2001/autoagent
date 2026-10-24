@@ -85,6 +85,22 @@ const support = await getEmbeddedPostgresTestSupport();
       `).toEqual(protectedBefore);
 
       await sql`UPDATE agents SET runtime_config = runtime_config || '{"afterMigration":{"retained":true}}'::jsonb WHERE company_id = ${companyId}`;
+      const normalizedBinding = JSON.stringify(expected);
+
+      await sql`UPDATE agents SET runtime_config = jsonb_set(runtime_config, '{aiConnection}', '{"mode":"responsible_user","method":"api_key","provider":"openai"}'::jsonb) WHERE id = ${ids.otherRole}`;
+      await expect(restoreN9routeAgentBindingSnapshot(sql, rollbackSnapshot)).rejects.toThrow(`conflicting binding: ${ids.otherRole}`);
+      expect((await sql`SELECT runtime_config FROM agents WHERE id = ${ids.designer}`)[0]?.runtime_config).toEqual({ heartbeat: { enabled: true }, custom: { retained: true }, aiConnection: expected, afterMigration: { retained: true } });
+      expect((await sql`SELECT runtime_config FROM agents WHERE id = ${ids.nullBinding}`)[0]?.runtime_config.aiConnection).toEqual(expected);
+      await sql`UPDATE agents SET runtime_config = jsonb_set(runtime_config, '{aiConnection}', ${normalizedBinding}::text::jsonb) WHERE id = ${ids.otherRole}`;
+
+      await sql`DELETE FROM agents WHERE id = ${ids.otherRole}`;
+      await expect(restoreN9routeAgentBindingSnapshot(sql, rollbackSnapshot)).rejects.toThrow(`agent is missing: ${ids.otherRole}`);
+      expect((await sql`SELECT runtime_config FROM agents WHERE id = ${ids.designer}`)[0]?.runtime_config).toEqual({ heartbeat: { enabled: true }, custom: { retained: true }, aiConnection: expected, afterMigration: { retained: true } });
+      await sql`INSERT INTO agents (id, company_id, name, role, adapter_type, adapter_config, runtime_config) VALUES (${ids.otherRole}, ${companyId}, 'Cost Review Worker', 'quantity surveyor', 'codex_local', '{"model":"cx/gpt-6-sol"}', ${JSON.stringify({ heartbeat: { maxConcurrentRuns: 2 }, aiConnection: expected, afterMigration: { retained: true } })}::text::jsonb)`;
+
+      await expect(restoreN9routeAgentBindingSnapshot(sql, [...rollbackSnapshot, rollbackSnapshot[0]!])).rejects.toThrow("duplicate agent IDs");
+      expect((await sql`SELECT runtime_config FROM agents WHERE id = ${ids.designer}`)[0]?.runtime_config).toEqual({ heartbeat: { enabled: true }, custom: { retained: true }, aiConnection: expected, afterMigration: { retained: true } });
+
       expect(await restoreN9routeAgentBindingSnapshot(sql, rollbackSnapshot)).toBe(4);
       const restored = await sql`SELECT id, runtime_config FROM agents WHERE company_id = ${companyId} ORDER BY name`;
       const restoredById = new Map(restored.map((row) => [row.id, row.runtime_config]));

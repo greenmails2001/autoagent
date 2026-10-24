@@ -36,12 +36,14 @@ Use **scoped restore from the captured snapshot** only when normalization itself
 
 Call `restoreN9routeAgentBindingSnapshot` with the captured JSON. The restore is fail-closed:
 
+- it rejects duplicate snapshot IDs, locks every captured row with `FOR UPDATE`, and preflights the complete batch before any mutation;
+- any missing, out-of-scope, or conflicting row throws inside the transaction, so PostgreSQL rolls back the entire batch and no partial restore commits;
 - it updates only captured `agents.id` values that still match `codex_local`, a non-empty `cx/*` model, and the exact normalized responsible-user 9route binding;
 - it restores or removes only `runtime_config.aiConnection` and preserves all sibling runtime config added after migration;
 - it never reads or writes credential, grant, provider-default, or connection-default tables;
 - a second run updates zero rows.
 
-If any captured row no longer has the exact normalized binding, stop and reconcile manually; do not overwrite a later explicit operator choice.
+An all-restored snapshot is an idempotent no-op. A mixed batch containing both restored and normalized rows is rejected rather than completing a potentially interrupted or manually altered restore. If any row fails preflight, stop and reconcile manually; do not rely on a short update count or overwrite a later explicit operator choice.
 
 ## Rehearsal and verification
 
@@ -51,6 +53,6 @@ Run:
 pnpm exec vitest run packages/db/src/n9route-agent-binding-migration.test.ts
 ```
 
-The embedded PostgreSQL rehearsal captures missing/null/malformed states, applies `0340`, preserves valid bindings and protected-table counts, adds an unrelated post-migration runtime key, restores only `aiConnection`, and proves the second restore is a no-op.
+The embedded PostgreSQL rehearsal captures missing/null/malformed states, applies `0340`, preserves valid bindings and protected-table counts, and adds an unrelated post-migration runtime key. It proves conflict, deleted-row, and duplicate-ID batches restore zero rows; then verifies the happy path restores only `aiConnection`, preserves JSON null and sibling config, and makes the second restore a no-op.
 
 After any production rollback, verify application health, the restored agent IDs, unchanged sibling config, unchanged protected-table counts/hashes, and that the four withheld default rows remain absent.
