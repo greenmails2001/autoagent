@@ -18,6 +18,24 @@ const PROVIDER_AUTH_ENV_KEYS: Record<AiProvider, readonly string[]> = {
   xai: ["XAI_API_KEY", "GROK_API_KEY", "GROK_HOME", "XAI_BASE_URL"],
 };
 
+const N9ROUTE_RESPONSIBLE_USER_BINDING = {
+  mode: "responsible_user",
+  method: "api_key",
+  provider: "9route",
+} as const;
+
+/** Persist the value-free credential choice implied by a 9route Codex model. */
+export function ensureModelAiConnectionBinding(
+  adapterType: string,
+  adapterConfig: Record<string, unknown>,
+  runtimeConfig: Record<string, unknown>,
+): Record<string, unknown> {
+  if (Object.prototype.hasOwnProperty.call(runtimeConfig, "aiConnection")) return runtimeConfig;
+  const model = typeof adapterConfig.model === "string" ? adapterConfig.model.trim() : "";
+  if (adapterType !== "codex_local" || !model.startsWith("cx/") || model.length <= 3) return runtimeConfig;
+  return { ...runtimeConfig, aiConnection: N9ROUTE_RESPONSIBLE_USER_BINDING };
+}
+
 /** A hire inherits a connection choice, never its manager's credentials or identity. */
 export function defaultAiConnectionForHire(
   adapterType: string,

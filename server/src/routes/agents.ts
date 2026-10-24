@@ -24,7 +24,7 @@ import {
 } from "@paperclipai/shared";
 import { toolConnections } from "@paperclipai/db";
 import { aiConnectionService } from "../services/ai-connections.js";
-import { defaultAiConnectionForHire } from "../services/agent-ai-connection-default.js";
+import { defaultAiConnectionForHire, ensureModelAiConnectionBinding } from "../services/agent-ai-connection-default.js";
 import { assertAiConnectionCreateAccess, canInstallSharedAiConnectionForNewAgent, responsibleUserForAiRequest } from "./ai-connections.js";
 import { isAiConnectionCompatible } from "@paperclipai/shared";
 import { applyConnectorSkills, resolveConnectorAssignments, annotateConnectorSkills, isConnectorSkill } from "../services/connector-runtime.js";
@@ -2117,7 +2117,11 @@ export function agentRoutes(
     adapterConfig: Record<string, unknown>,
     runtimeConfig: unknown,
   ) {
-    const normalized = normalizeNewAgentRuntimeConfig(runtimeConfig);
+    const normalized = ensureModelAiConnectionBinding(
+      adapterType,
+      adapterConfig,
+      normalizeNewAgentRuntimeConfig(runtimeConfig),
+    );
     if (req.actor.type !== "agent" || normalized.aiConnection) return normalized;
     const manager = req.actor.agentId ? await svc.getById(req.actor.agentId) : null;
     if (!manager || manager.companyId !== companyId) throw forbidden("Hiring agent is unavailable");
@@ -5317,6 +5321,13 @@ export function agentRoutes(
       });
     }
     if (existing.runtimeConfig.aiConnection && requestedRuntimeConfig && !requestedRuntimeConfig.aiConnection) requestedRuntimeConfig.aiConnection = existing.runtimeConfig.aiConnection;
+    const runtimeConfigBeforeModelBinding = requestedRuntimeConfig ?? existing.runtimeConfig;
+    const runtimeConfigWithModelBinding = ensureModelAiConnectionBinding(
+      requestedAdapterType,
+      (patchData.adapterConfig ?? existing.adapterConfig) as Record<string, unknown>,
+      runtimeConfigBeforeModelBinding,
+    );
+    if (runtimeConfigWithModelBinding !== runtimeConfigBeforeModelBinding) requestedRuntimeConfig = runtimeConfigWithModelBinding;
     const nextAiBinding = aiRuntimeConnectionBindingSchema.safeParse(requestedRuntimeConfig?.aiConnection ?? existing.runtimeConfig.aiConnection).data;
     if (nextAiBinding) {
       await assertCanUpdateAgent(req, existing);

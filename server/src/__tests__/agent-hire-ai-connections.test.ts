@@ -99,6 +99,70 @@ async function poolFixture(f: Awaited<ReturnType<typeof fixture>>, extraMembers:
 }
 
 describe("agent-created hires use managed AI connections", () => {
+  it.each([
+    ["agents", "N9 DocAI Designer", "designer"],
+    ["agent-hires", "Cost Review Worker", "engineer"],
+  ])("%s persists and reloads the 9route binding for cx agents regardless of name or role", async (endpoint, name, role) => {
+    const f = await fixture("openai");
+    const account = await aiConnectionService(db).save(f.companyId, f.userId, {
+      provider: "9route", method: "api_key", name: "N9 route", ownership: "personal",
+      apiKey: "fixture-9route-key", agentIds: [], allAgents: true,
+    }, "fixture-9route-key");
+    const agent = hired(await request(f.app).post(`/api/companies/${f.companyId}/${endpoint}`).send({
+      name, role, adapterType: "codex_local",
+      adapterConfig: { model: "cx/gpt-6-sol", reasoningEffort: "high" },
+      runtimeConfig: { heartbeat: { enabled: false }, retained: { value: true } },
+    }));
+    expect(agent.runtimeConfig).toMatchObject({
+      heartbeat: { enabled: false }, retained: { value: true },
+      aiConnection: { mode: "responsible_user", method: "api_key", provider: "9route" },
+    });
+    const [reloaded] = await db.select().from(agents).where(eq(agents.id, agent.id));
+    expect(reloaded.runtimeConfig).toEqual(agent.runtimeConfig);
+    const runtime = await prepareManagedAiRuntime(db, {
+      companyId: f.companyId, agentId: agent.id, responsibleUserId: f.userId,
+      adapterType: agent.adapterType, binding: agent.runtimeConfig.aiConnection,
+      config: { ...agent.adapterConfig, cwd: home },
+    });
+    try {
+      expect(runtime.attribution).toMatchObject({ connectionId: account.connectionId, provider: "9route", method: "api_key" });
+      expect((runtime.config.env as Record<string, string>).N9ROUTE_API_KEY).toBe("fixture-9route-key");
+    } finally { await runtime.cleanup(); }
+  });
+
+  it("derives and persists the 9route binding when an existing unbound Codex agent is edited to a cx model", async () => {
+    const f = await fixture("openai");
+    await aiConnectionService(db).save(f.companyId, f.userId, {
+      provider: "9route", method: "api_key", name: "N9 route", ownership: "personal",
+      apiKey: "fixture-9route-key", agentIds: [], allAgents: true,
+    }, "fixture-9route-key");
+    await db.insert(principalPermissionGrants).values({ companyId: f.companyId, principalType: "user", principalId: f.userId, permissionKey: "agents:configure" });
+    await db.update(agents).set({ runtimeConfig: { heartbeat: { enabled: true }, retained: "yes" }, adapterConfig: { model: "gpt-6-sol", cwd: home } }).where(eq(agents.id, f.agentId));
+    const original = getServerAdapter(f.adapterType);
+    registerServerAdapter({
+      ...original,
+      testEnvironment: async () => ({ adapterType: f.adapterType, status: "pass", checks: [], testedAt: new Date().toISOString() }),
+    });
+    const previous9routeBaseUrl = process.env.AUTOAGENT_9ROUTE_BASE_URL;
+    process.env.AUTOAGENT_9ROUTE_BASE_URL = "https://fixture.9route.test/v1";
+    const network = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 200 }));
+    try {
+      const response = await request(f.app).patch(`/api/agents/${f.agentId}`).send({ adapterConfig: { model: "cx/gpt-6-sol" } });
+      expect(response.status, JSON.stringify(response.body)).toBe(200);
+      expect(response.body.runtimeConfig).toEqual({
+        heartbeat: { enabled: true }, retained: "yes",
+        aiConnection: { mode: "responsible_user", method: "api_key", provider: "9route" },
+      });
+      const [reloaded] = await db.select().from(agents).where(eq(agents.id, f.agentId));
+      expect(reloaded.runtimeConfig).toEqual(response.body.runtimeConfig);
+    } finally {
+      if (previous9routeBaseUrl === undefined) delete process.env.AUTOAGENT_9ROUTE_BASE_URL;
+      else process.env.AUTOAGENT_9ROUTE_BASE_URL = previous9routeBaseUrl;
+      network.mockRestore();
+      unregisterServerAdapter(f.adapterType);
+    }
+  });
+
   it.each(["agent-hires", "agents"])("%s inherits a manager's pool without copying legacy credentials", async (endpoint) => {
     const f = await fixture("openai");
     const p = await poolFixture(f);
