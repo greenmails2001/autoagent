@@ -1,0 +1,124 @@
+import { createHash, randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import postgres from "postgres";
+import { describe, expect, it } from "vitest";
+import { applyPendingMigrations } from "./client.js";
+import { getEmbeddedPostgresTestSupport, startEmbeddedPostgresTestDatabase } from "./test-embedded-postgres.js";
+import { captureN9routeAgentBindingSnapshot, restoreN9routeAgentBindingSnapshot } from "./n9route-agent-binding-rollback.js";
+
+const support = await getEmbeddedPostgresTestSupport();
+
+(support.supported ? describe : describe.skip)("9route agent binding backfill", () => {
+  it("backfills only eligible cx agents and is idempotent without changing grants or defaults", async () => {
+    const database = await startEmbeddedPostgresTestDatabase("paperclip-9route-agent-binding-");
+    const sql = postgres(database.connectionString, { max: 1 });
+    try {
+      await applyPendingMigrations(database.connectionString);
+      const migration = await readFile(new URL("./migrations/0340_n9route_agent_binding.sql", import.meta.url), "utf8");
+      const hash = createHash("sha256").update(migration).digest("hex");
+      await sql`DELETE FROM drizzle.__drizzle_migrations WHERE hash = ${hash}`;
+
+      const companyId = randomUUID();
+      await sql`INSERT INTO companies (id, name, issue_prefix) VALUES (${companyId}, 'N9 regression', 'N9R')`;
+      const ids = {
+        designer: randomUUID(),
+        otherRole: randomUUID(),
+        explicit: randomUUID(),
+        nullBinding: randomUUID(),
+        malformedBinding: randomUUID(),
+        openAi: randomUUID(),
+        claude: randomUUID(),
+        barePrefix: randomUUID(),
+      };
+      await sql`
+        INSERT INTO agents (id, company_id, name, role, adapter_type, adapter_config, runtime_config)
+        VALUES
+          (${ids.designer}, ${companyId}, 'N9 DocAI Designer', 'document designer', 'codex_local', '{"model":"cx/gpt-6-sol","reasoningEffort":"high"}', '{"heartbeat":{"enabled":true},"custom":{"retained":true}}'),
+          (${ids.otherRole}, ${companyId}, 'Cost Review Worker', 'quantity surveyor', 'codex_local', '{"model":"cx/gpt-6-sol"}', '{"heartbeat":{"maxConcurrentRuns":2}}'),
+          (${ids.explicit}, ${companyId}, 'Explicit Binding', 'engineer', 'codex_local', '{"model":"cx/gpt-6-sol"}', '{"aiConnection":{"mode":"responsible_user","method":"api_key","provider":"openai"},"keep":1}'),
+          (${ids.nullBinding}, ${companyId}, 'Manual Review', 'engineer', 'codex_local', '{"model":"cx/gpt-6-sol"}', '{"aiConnection":null,"keep":2}'),
+          (${ids.malformedBinding}, ${companyId}, 'Malformed Binding', 'engineer', 'codex_local', '{"model":"cx/gpt-6-sol"}', '{"aiConnection":{"mode":"responsible_user","method":"api_key"},"keep":6}'),
+          (${ids.openAi}, ${companyId}, 'OpenAI Agent', 'engineer', 'codex_local', '{"model":"gpt-6-sol"}', '{"keep":3}'),
+          (${ids.claude}, ${companyId}, 'Claude Agent', 'engineer', 'claude_local', '{"model":"cx/gpt-6-sol"}', '{"keep":4}'),
+          (${ids.barePrefix}, ${companyId}, 'Bare Prefix', 'engineer', 'codex_local', '{"model":"cx/"}', '{"keep":5}')
+      `;
+      const rollbackSnapshot = await captureN9routeAgentBindingSnapshot(sql);
+      expect(rollbackSnapshot).toEqual(expect.arrayContaining([
+        { agentId: ids.designer, hadAiConnection: false, aiConnection: null },
+        { agentId: ids.otherRole, hadAiConnection: false, aiConnection: null },
+        { agentId: ids.nullBinding, hadAiConnection: true, aiConnection: null },
+        { agentId: ids.malformedBinding, hadAiConnection: true, aiConnection: { mode: "responsible_user", method: "api_key" } },
+      ]));
+      const protectedBefore = await sql`
+        SELECT
+          (SELECT count(*)::int FROM connection_grants) AS grants,
+          (SELECT count(*)::int FROM ai_provider_defaults) AS provider_defaults,
+          (SELECT count(*)::int FROM ai_connection_defaults) AS connection_defaults
+      `;
+
+      await applyPendingMigrations(database.connectionString);
+      const rows = await sql`SELECT id, adapter_config, runtime_config, updated_at FROM agents WHERE company_id = ${companyId} ORDER BY name`;
+      const byId = new Map(rows.map((row) => [row.id, row]));
+      const expected = { mode: "responsible_user", method: "api_key", provider: "9route" };
+      expect(byId.get(ids.designer)?.runtime_config).toEqual({ heartbeat: { enabled: true }, custom: { retained: true }, aiConnection: expected });
+      expect(byId.get(ids.otherRole)?.runtime_config).toEqual({ heartbeat: { maxConcurrentRuns: 2 }, aiConnection: expected });
+      expect(byId.get(ids.explicit)?.runtime_config).toEqual({ aiConnection: { mode: "responsible_user", method: "api_key", provider: "openai" }, keep: 1 });
+      expect(byId.get(ids.nullBinding)?.runtime_config).toEqual({ aiConnection: expected, keep: 2 });
+      expect(byId.get(ids.malformedBinding)?.runtime_config).toEqual({ aiConnection: expected, keep: 6 });
+      expect(byId.get(ids.openAi)?.runtime_config).toEqual({ keep: 3 });
+      expect(byId.get(ids.claude)?.runtime_config).toEqual({ keep: 4 });
+      expect(byId.get(ids.barePrefix)?.runtime_config).toEqual({ keep: 5 });
+      expect(byId.get(ids.designer)?.adapter_config).toEqual({ model: "cx/gpt-6-sol", reasoningEffort: "high" });
+
+      const firstUpdatedAt = new Map(rows.map((row) => [row.id, row.updated_at]));
+      await sql`DELETE FROM drizzle.__drizzle_migrations WHERE hash = ${hash}`;
+      await applyPendingMigrations(database.connectionString);
+      const afterRerun = await sql`SELECT id, runtime_config, updated_at FROM agents WHERE company_id = ${companyId} ORDER BY name`;
+      expect(afterRerun.map((row) => [row.id, row.runtime_config, row.updated_at])).toEqual(
+        rows.map((row) => [row.id, row.runtime_config, firstUpdatedAt.get(row.id)]),
+      );
+      expect(await sql`
+        SELECT
+          (SELECT count(*)::int FROM connection_grants) AS grants,
+          (SELECT count(*)::int FROM ai_provider_defaults) AS provider_defaults,
+          (SELECT count(*)::int FROM ai_connection_defaults) AS connection_defaults
+      `).toEqual(protectedBefore);
+
+      await sql`UPDATE agents SET runtime_config = runtime_config || '{"afterMigration":{"retained":true}}'::jsonb WHERE company_id = ${companyId}`;
+      const normalizedBinding = JSON.stringify(expected);
+
+      await sql`UPDATE agents SET runtime_config = jsonb_set(runtime_config, '{aiConnection}', '{"mode":"responsible_user","method":"api_key","provider":"openai"}'::jsonb) WHERE id = ${ids.otherRole}`;
+      await expect(restoreN9routeAgentBindingSnapshot(sql, rollbackSnapshot)).rejects.toThrow(`conflicting binding: ${ids.otherRole}`);
+      expect((await sql`SELECT runtime_config FROM agents WHERE id = ${ids.designer}`)[0]?.runtime_config).toEqual({ heartbeat: { enabled: true }, custom: { retained: true }, aiConnection: expected, afterMigration: { retained: true } });
+      expect((await sql`SELECT runtime_config FROM agents WHERE id = ${ids.nullBinding}`)[0]?.runtime_config.aiConnection).toEqual(expected);
+      await sql`UPDATE agents SET runtime_config = jsonb_set(runtime_config, '{aiConnection}', ${normalizedBinding}::text::jsonb) WHERE id = ${ids.otherRole}`;
+
+      await sql`DELETE FROM agents WHERE id = ${ids.otherRole}`;
+      await expect(restoreN9routeAgentBindingSnapshot(sql, rollbackSnapshot)).rejects.toThrow(`agent is missing: ${ids.otherRole}`);
+      expect((await sql`SELECT runtime_config FROM agents WHERE id = ${ids.designer}`)[0]?.runtime_config).toEqual({ heartbeat: { enabled: true }, custom: { retained: true }, aiConnection: expected, afterMigration: { retained: true } });
+      await sql`INSERT INTO agents (id, company_id, name, role, adapter_type, adapter_config, runtime_config) VALUES (${ids.otherRole}, ${companyId}, 'Cost Review Worker', 'quantity surveyor', 'codex_local', '{"model":"cx/gpt-6-sol"}', ${JSON.stringify({ heartbeat: { maxConcurrentRuns: 2 }, aiConnection: expected, afterMigration: { retained: true } })}::text::jsonb)`;
+
+      await expect(restoreN9routeAgentBindingSnapshot(sql, [...rollbackSnapshot, rollbackSnapshot[0]!])).rejects.toThrow("duplicate agent IDs");
+      expect((await sql`SELECT runtime_config FROM agents WHERE id = ${ids.designer}`)[0]?.runtime_config).toEqual({ heartbeat: { enabled: true }, custom: { retained: true }, aiConnection: expected, afterMigration: { retained: true } });
+
+      expect(await restoreN9routeAgentBindingSnapshot(sql, rollbackSnapshot)).toBe(4);
+      const restored = await sql`SELECT id, runtime_config FROM agents WHERE company_id = ${companyId} ORDER BY name`;
+      const restoredById = new Map(restored.map((row) => [row.id, row.runtime_config]));
+      expect(restoredById.get(ids.designer)).toEqual({ heartbeat: { enabled: true }, custom: { retained: true }, afterMigration: { retained: true } });
+      expect(restoredById.get(ids.otherRole)).toEqual({ heartbeat: { maxConcurrentRuns: 2 }, afterMigration: { retained: true } });
+      expect(restoredById.get(ids.nullBinding)).toEqual({ aiConnection: null, keep: 2, afterMigration: { retained: true } });
+      expect(restoredById.get(ids.malformedBinding)).toEqual({ aiConnection: { mode: "responsible_user", method: "api_key" }, keep: 6, afterMigration: { retained: true } });
+      expect(restoredById.get(ids.explicit)).toEqual({ aiConnection: { mode: "responsible_user", method: "api_key", provider: "openai" }, keep: 1, afterMigration: { retained: true } });
+      expect(await restoreN9routeAgentBindingSnapshot(sql, rollbackSnapshot)).toBe(0);
+      expect(await sql`
+        SELECT
+          (SELECT count(*)::int FROM connection_grants) AS grants,
+          (SELECT count(*)::int FROM ai_provider_defaults) AS provider_defaults,
+          (SELECT count(*)::int FROM ai_connection_defaults) AS connection_defaults
+      `).toEqual(protectedBefore);
+    } finally {
+      await sql.end();
+      await database.cleanup();
+    }
+  }, 60_000);
+});
