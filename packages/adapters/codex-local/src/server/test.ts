@@ -95,11 +95,13 @@ async function prepareCodexHelloProbe(input: {
   cleanup: () => Promise<void>;
 }> {
   let preparedRuntime: Awaited<ReturnType<typeof prepareAdapterExecutionTargetRuntime>> | null = null;
+  let preparedProviderConfig: Awaited<ReturnType<typeof prepareCodexRuntimeConfig>> | null = null;
   let preparedRuntimeWorkspaceLocalDir: string | null = null;
   let probeHomeLocalDir: string | null = null;
 
   const cleanup = async () => {
     await preparedRuntime?.restoreWorkspace().catch(() => {});
+    await preparedProviderConfig?.cleanup().catch(() => {});
     if (preparedRuntimeWorkspaceLocalDir) {
       await fs.rm(preparedRuntimeWorkspaceLocalDir, { recursive: true, force: true }).catch(() => {});
     }
@@ -108,7 +110,7 @@ async function prepareCodexHelloProbe(input: {
     }
   };
 
-  if (input.targetIsRemote && !input.probeApiKey) {
+  if (!input.probeApiKey && (input.targetIsRemote || input.managedAiConnection)) {
     // Prepare the exact home a real run would use, mirroring execute.ts: vend
     // the shared credential's freshest same-identity cached copy, then seed the
     // effective home — the company default when no CODEX_HOME is configured, a
@@ -169,6 +171,20 @@ async function prepareCodexHelloProbe(input: {
       }
     }
 
+    // ACP and CLI environment checks run sequentially against the same
+    // managed connection. ACP restores config.toml after its probe, so the CLI
+    // probe must materialize provider routing into its own isolated copy
+    // instead of relying on mutable state left in the managed home.
+    if (input.managedAiConnection) {
+      preparedProviderConfig = await prepareCodexRuntimeConfig({
+        env: input.env,
+        codexHome: probeHomeLocalDir,
+      });
+      seededConfig = await fs.access(path.join(probeHomeLocalDir, "config.toml"))
+        .then(() => true)
+        .catch(() => false);
+    }
+
     // When the host has no Codex credentials to seed, don't override CODEX_HOME.
     // Pointing Codex at an empty uploaded home would mask any login already
     // baked into the sandbox (e.g. a captured custom-image snapshot); leaving
@@ -178,6 +194,14 @@ async function prepareCodexHelloProbe(input: {
         command: input.command,
         args: input.args,
         env: { ...input.env },
+        cleanup,
+      };
+    }
+    if (!input.targetIsRemote) {
+      return {
+        command: input.command,
+        args: input.args,
+        env: { ...input.env, CODEX_HOME: probeHomeLocalDir },
         cleanup,
       };
     }

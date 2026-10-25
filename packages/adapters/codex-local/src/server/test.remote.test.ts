@@ -16,6 +16,8 @@ const {
   restoreWorkspace,
   capturedHomeAssetFiles,
   capturedHomeAssetAuthJson,
+  capturedHomeAssetConfigToml,
+  capturedProbeConfigToml,
 } = vi.hoisted(() => {
   const restoreWorkspace = vi.fn(async () => {});
   // Records the files staged in the uploaded "home" asset at call time, before
@@ -25,25 +27,36 @@ const {
   // Records the staged auth.json content, so tests can assert WHICH home's
   // credential the probe uploaded (the effective home a run would use).
   const capturedHomeAssetAuthJson: { value: string | null } = { value: null };
+  const capturedHomeAssetConfigToml: { value: string | null } = { value: null };
+  const capturedProbeConfigToml: { value: string | null } = { value: null };
   return {
     capturedHomeAssetFiles,
     capturedHomeAssetAuthJson,
+    capturedHomeAssetConfigToml,
+    capturedProbeConfigToml,
     ensureAdapterExecutionTargetDirectory: vi.fn(async () => {}),
     ensureAdapterExecutionTargetCommandResolvable: vi.fn(async () => {}),
     maybeRunSandboxInstallCommand: vi.fn(async () => null),
-    runAdapterExecutionTargetProcess: vi.fn(async () => ({
-      exitCode: 0,
-      signal: null,
-      timedOut: false,
-      stdout: [
-        "{\"type\":\"thread.started\",\"thread_id\":\"thread-1\"}",
-        "{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"hello\"}}",
-        "{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":1,\"cached_input_tokens\":0,\"output_tokens\":1}}",
-      ].join("\n"),
-      stderr: "",
-      pid: 123,
-      startedAt: new Date().toISOString(),
-    })),
+    runAdapterExecutionTargetProcess: vi.fn(async (...args: unknown[]) => {
+      const options = args[4] as { env?: Record<string, string> } | undefined;
+      const codexHome = options?.env?.CODEX_HOME;
+      capturedProbeConfigToml.value = codexHome
+        ? await fs.readFile(path.join(codexHome, "config.toml"), "utf8").catch(() => null)
+        : null;
+      return {
+        exitCode: 0,
+        signal: null,
+        timedOut: false,
+        stdout: [
+          "{\"type\":\"thread.started\",\"thread_id\":\"thread-1\"}",
+          "{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"hello\"}}",
+          "{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":1,\"cached_input_tokens\":0,\"output_tokens\":1}}",
+        ].join("\n"),
+        stderr: "",
+        pid: 123,
+        startedAt: new Date().toISOString(),
+      };
+    }),
     describeAdapterExecutionTarget: vi.fn(() => "QA SSH"),
     resolveAdapterExecutionTargetCwd: vi.fn((target, configuredCwd, fallbackCwd) => {
       if (typeof configuredCwd === "string" && configuredCwd.trim().length > 0) return configuredCwd;
@@ -58,6 +71,9 @@ const {
         capturedHomeAssetFiles.value = (await fs.readdir(homeAsset.localDir)).sort();
         capturedHomeAssetAuthJson.value = await fs
           .readFile(`${homeAsset.localDir}/auth.json`, "utf8")
+          .catch(() => null);
+        capturedHomeAssetConfigToml.value = await fs
+          .readFile(`${homeAsset.localDir}/config.toml`, "utf8")
           .catch(() => null);
       }
       return {
@@ -133,6 +149,8 @@ describe("codex remote environment diagnostics", () => {
     delete process.env.OPENAI_API_KEY;
     capturedHomeAssetFiles.value = null;
     capturedHomeAssetAuthJson.value = null;
+    capturedHomeAssetConfigToml.value = null;
+    capturedProbeConfigToml.value = null;
     while (scratchDirs.length > 0) {
       const dir = scratchDirs.pop();
       if (dir) await fs.rm(dir, { recursive: true, force: true }).catch(() => undefined);
@@ -209,6 +227,88 @@ describe("codex remote environment diagnostics", () => {
       }),
     });
     expect(restoreWorkspace).toHaveBeenCalledTimes(1);
+  });
+
+  it("materializes managed provider routing into the isolated CLI hello-probe home", async () => {
+    const remoteTarget: AdapterExecutionTarget = {
+      kind: "remote",
+      transport: "ssh",
+      remoteCwd: "/remote/workspace",
+      spec: {
+        host: "127.0.0.1",
+        port: 22,
+        username: "agent",
+        privateKey: "PRIVATE KEY",
+        knownHosts: "KNOWN HOSTS",
+        remoteCwd: "/remote/workspace",
+        remoteWorkspacePath: "/remote/workspace",
+        strictHostKeyChecking: false,
+      },
+    };
+
+    const result = await testEnvironment({
+      companyId: "company-1",
+      adapterType: "codex_local",
+      config: {
+        engine: "cli",
+        command: "codex",
+        managedAiConnection: { identity: "fixture" },
+        env: {
+          CODEX_HOME: await prepareManagedCodexHome(),
+          N9ROUTE_API_KEY: "fixture-key",
+          PAPERCLIP_CODEX_PROVIDERS: JSON.stringify({
+            providers: {
+              "9router": {
+                name: "9route",
+                base_url: "https://route.proj.vn/v1",
+                env_key: "N9ROUTE_API_KEY",
+              },
+            },
+            model_provider: "9router",
+          }),
+        },
+      },
+      executionTarget: remoteTarget,
+      environmentName: "QA SSH",
+    });
+
+    expect(result.status).toBe("pass");
+    expect(capturedHomeAssetConfigToml.value).toContain('model_provider = "9router"');
+    expect(capturedHomeAssetConfigToml.value).toContain("[model_providers.9router]");
+  });
+
+  it("isolates a local managed CLI hello probe from ACP cleanup of the shared provider home", async () => {
+    const managedHome = await prepareManagedCodexHome();
+
+    const result = await testEnvironment({
+      companyId: "company-1",
+      adapterType: "codex_local",
+      config: {
+        engine: "cli",
+        command: "codex",
+        managedAiConnection: { identity: "fixture" },
+        env: {
+          CODEX_HOME: managedHome,
+          N9ROUTE_API_KEY: "fixture-key",
+          PAPERCLIP_CODEX_PROVIDERS: JSON.stringify({
+            providers: {
+              "9router": {
+                name: "9route",
+                base_url: "https://route.proj.vn/v1",
+                env_key: "N9ROUTE_API_KEY",
+              },
+            },
+            model_provider: "9router",
+          }),
+        },
+      },
+      executionTarget: null,
+    });
+
+    expect(result.status).toBe("pass");
+    expect(capturedProbeConfigToml.value).toContain('model_provider = "9router"');
+    expect(capturedProbeConfigToml.value).toContain("[model_providers.9router]");
+    expect(await fs.readFile(path.join(managedHome, "config.toml"), "utf8")).toBe('model = "gpt-5"\n');
   });
 
   it("avoids /tmp CODEX_HOME for remote API-key hello probes", async () => {
