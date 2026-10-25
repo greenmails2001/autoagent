@@ -676,12 +676,17 @@ describe("AgentConfigForm environment selector", () => {
     await act(async () => { select.value = "__paperclip_custom_model__"; select.dispatchEvent(new Event("change", { bubbles: true })); });
     const input = container.querySelector<HTMLInputElement>('[aria-label="Model ID"]')!;
     await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "runtime/");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "runtime/vendor-model");
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
     await act(async () => { select.value = ""; select.dispatchEvent(new Event("change", { bubbles: true })); });
     expect([...select.options].map(option => option.value)).toContain("cx/gpt-6-sol");
     expect([...select.options].map(option => option.value)).toContain("runtime/vendor-model");
+    expect([...select.options].map(option => option.value)).not.toContain("runtime/");
     await act(async () => { select.value = "cx/gpt-6-sol"; select.dispatchEvent(new Event("change", { bubbles: true })); });
     expect(select.value).toBe("cx/gpt-6-sol");
   });

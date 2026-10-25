@@ -3819,14 +3819,15 @@ export function ModelDropdown({
   defaultLabel?: string;
   presentation?: "searchable" | "native";
 }) {
+  const [enteringCustomModel, setEnteringCustomModel] = useState(false);
   const [selectedModels, setSelectedModels] = useState<AdapterModel[]>(() => value
     ? [catalogModels.find(model => model.id === value) ?? { id: value, label: value }]
     : []);
   useEffect(() => {
-    if (!value) return;
+    if (!value || enteringCustomModel) return;
     setSelectedModels(previous => previous.some(model => model.id === value) ? previous
       : [...previous, catalogModels.find(model => model.id === value) ?? { id: value, label: value }]);
-  }, [value, catalogModels]);
+  }, [value, catalogModels, enteringCustomModel]);
   const models = useMemo(() => [...catalogModels,
     ...selectedModels.filter(selected => !catalogModels.some(model => model.id === selected.id)),
   ], [catalogModels, selectedModels]);
@@ -3834,7 +3835,6 @@ export function ModelDropdown({
   useEffect(() => {
     if (!open) setModelSearch("");
   }, [open]);
-  const [enteringCustomModel, setEnteringCustomModel] = useState(false);
   const [detectingModel, setDetectingModel] = useState(false);
   const selected = models.find((m) => m.id === value);
   const manualModel = modelSearch.trim();
@@ -3915,6 +3915,10 @@ export function ModelDropdown({
           required={required && !enteringCustomModel}
           onChange={event => {
             const next = event.target.value;
+            if (enteringCustomModel && value) {
+              setSelectedModels(previous => previous.some(model => model.id === value) ? previous
+                : [...previous, { id: value, label: value }]);
+            }
             setEnteringCustomModel(next === customOption);
             if (next !== customOption) onChange(next);
           }}
