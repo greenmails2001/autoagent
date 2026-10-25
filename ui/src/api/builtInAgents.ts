@@ -1,3 +1,4 @@
+import type { BuiltInAgentSetupMetadata } from "@paperclipai/shared/built-in-agent-setup";
 import type { Agent, Approval } from "@paperclipai/shared";
 import { api } from "./client";
 
@@ -96,6 +97,7 @@ export interface BuiltInManagedResourceState {
 }
 
 export interface BuiltInAgentState {
+  setupMetadata?: BuiltInAgentSetupMetadata;
   definition: BuiltInAgentDefinition;
   status: BuiltInAgentStatus;
   agentId: string | null;

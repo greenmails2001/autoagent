@@ -71,6 +71,7 @@ import type { IssueExternalObjectGroup } from "../../hooks/useIssueExternalObjec
 import { timeAgo } from "../../lib/timeAgo";
 import { invalidateInboxIssueQueries } from "../../lib/inboxArchiveCache";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
@@ -744,12 +745,15 @@ export function IssueProperties({
   const assigneePrimaryModel =
     typeof assigneePrimaryAdapterConfig.model === "string" ? assigneePrimaryAdapterConfig.model : "";
   const effectiveAssigneeModel = assigneeOverrideModel || assigneePrimaryModel;
+  const [customOverrideModel, setCustomOverrideModel] = useState("");
+  useEffect(() => setCustomOverrideModel(""), [issue.id, issue.assigneeAgentId]);
   const assigneeOverrideThinkingEffort = thinkingEffortValueFor(
     assigneeAdapterType,
     assigneeOverrideAdapterConfig,
   );
   const assigneeOverrideChrome = assigneeAdapterType === "claude_local"
     && assigneeOverrideAdapterConfig.chrome === true;
+  const runtimeDefaultCodex = assigneeAdapterType === "codex_local" && !assignee?.runtimeConfig?.aiConnection;
   const catalogProvider = assigneeAdapterType === "paperclip_runner" ? String(normalizeLegacyRunnerProvider(assigneePrimaryAdapterConfig).provider ?? "codex") : undefined;
   const { data: assigneeAdapterModels } = useQuery({
     queryKey:
@@ -757,10 +761,10 @@ export function IssueProperties({
         ? queryKeys.agents.adapterModels(companyId, assigneeAdapterType, null, catalogProvider)
         : ["agents", "none", "adapter-models", assigneeAdapterType ?? "none"],
     queryFn: () => agentsApi.adapterModels(companyId!, assigneeAdapterType!, { provider: catalogProvider }),
-    enabled: Boolean(companyId) && showAssigneeAdapterOptions && supportsAssigneeOverrides,
+    enabled: Boolean(companyId) && showAssigneeAdapterOptions && supportsAssigneeOverrides && !runtimeDefaultCodex,
   });
   const modelOverrideOptions = useMemo<InlineEntityOption[]>(() => {
-    const models = sortAdapterModels(assigneeAdapterModels ?? []);
+    const models = sortAdapterModels(runtimeDefaultCodex ? [] : assigneeAdapterModels ?? []);
     const options = models.map((model) => ({
       id: model.id,
       label: model.label,
@@ -773,8 +777,11 @@ export function IssueProperties({
         searchText: assigneeOverrideModel,
       });
     }
+    if (runtimeDefaultCodex && assigneePrimaryModel && !options.some((option) => option.id === assigneePrimaryModel)) {
+      options.push({ id: assigneePrimaryModel, label: assigneePrimaryModel, searchText: assigneePrimaryModel });
+    }
     return options;
-  }, [assigneeAdapterModels, assigneeOverrideModel]);
+  }, [assigneeAdapterModels, assigneeOverrideModel, assigneePrimaryModel, runtimeDefaultCodex]);
   const updateAssigneeAdapterOverrides = (next: Issue["assigneeAdapterOverrides"]) => {
     onUpdate({ assigneeAdapterOverrides: next });
   };
@@ -890,6 +897,20 @@ export function IssueProperties({
               emptyMessage="No models found."
               onChange={updateAssigneeOverrideModel}
             />
+            {runtimeDefaultCodex ? (
+              <form className="flex items-center gap-2" onSubmit={(event) => {
+                event.preventDefault();
+                const canonicalModel = customOverrideModel.trim();
+                if (!canonicalModel || /\s/.test(canonicalModel)) return;
+                updateAssigneeOverrideModel(canonicalModel);
+                setCustomOverrideModel("");
+              }}>
+                <Input aria-label="Custom model ID" placeholder="Custom model ID" value={customOverrideModel}
+                  onChange={(event) => setCustomOverrideModel(event.target.value)} />
+                <Button type="submit" variant="outline" size="sm"
+                  disabled={!customOverrideModel.trim() || /\s/.test(customOverrideModel.trim())}>Use</Button>
+              </form>
+            ) : null}
           </div>
           <div className="space-y-1.5">
             <div className="text-xs text-muted-foreground">Thinking effort</div>

@@ -18,22 +18,23 @@ const PROVIDER_AUTH_ENV_KEYS: Record<AiProvider, readonly string[]> = {
   xai: ["XAI_API_KEY", "GROK_API_KEY", "GROK_HOME", "XAI_BASE_URL"],
 };
 
-const N9ROUTE_RESPONSIBLE_USER_BINDING = {
-  mode: "responsible_user",
-  method: "api_key",
-  provider: "9route",
-} as const;
-
-/** Persist the value-free credential choice implied by a 9route Codex model. */
+/** Models do not imply a credential choice; absence means runtime default. */
 export function ensureModelAiConnectionBinding(
-  adapterType: string,
-  adapterConfig: Record<string, unknown>,
+  _adapterType: string,
+  _adapterConfig: Record<string, unknown>,
   runtimeConfig: Record<string, unknown>,
 ): Record<string, unknown> {
-  const model = typeof adapterConfig.model === "string" ? adapterConfig.model.trim() : "";
-  if (adapterType !== "codex_local" || !model.startsWith("cx/") || model.length <= 3) return runtimeConfig;
-  if (aiRuntimeConnectionBindingSchema.safeParse(runtimeConfig.aiConnection).success) return runtimeConfig;
-  return { ...runtimeConfig, aiConnection: N9ROUTE_RESPONSIBLE_USER_BINDING };
+  return runtimeConfig;
+}
+
+/** A supplied runtimeConfig replaces the binding; omitting runtimeConfig preserves it. */
+export function resolveUpdatedAiConnectionBinding(
+  requestedRuntimeConfig: Record<string, unknown> | null,
+  existingBinding: unknown,
+): AiRuntimeConnectionBinding | undefined {
+  return aiRuntimeConnectionBindingSchema.safeParse(
+    requestedRuntimeConfig === null ? existingBinding : requestedRuntimeConfig.aiConnection,
+  ).data;
 }
 
 /** A hire inherits a connection choice, never its manager's credentials or identity. */
