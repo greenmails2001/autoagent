@@ -1,3 +1,4 @@
+import type { BuiltInAgentSetupMetadata } from "@paperclipai/shared/built-in-agent-setup";
 import { createAgentLifecycle } from "./agent-lifecycle.js";
 import fs from "node:fs/promises";
 import { readFileSync } from "node:fs";
@@ -57,6 +58,7 @@ export interface BuiltInAgentDefinition {
 }
 
 export interface BuiltInAgentState {
+  setupMetadata?: BuiltInAgentSetupMetadata;
   definition: BuiltInAgentDefinition;
   status: BuiltInAgentStatus;
   agentId: string | null;

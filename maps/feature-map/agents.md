@@ -37,6 +37,12 @@ Preconditions: follow the [baseline](./README.md#before-driving-a-journey). Use 
 
 Automated: [new agent page](../../ui/src/pages/NewAgent.test.tsx) and [configuration form](../../ui/src/components/AgentConfigForm.render.test.tsx) cover mocked UI behavior.
 
+Built-in responses expose only `setupMetadata.model` and binding mode/provider
+alongside redacted adapter/runtime configs. Company access protects reads;
+provisioning also requires `agents:create`. The modal preserves saved canonical
+IDs and omits unchanged adapter setup on submit. Missing metadata blocks setup
+until reload rather than treating it as Runtime default.
+
 For Codex with Runtime default, the generic adapter catalog is not proof that
 the runtime supports an ID. Setup offers Default/custom/saved IDs and passes
 canonical values without adding a prefix. Onboarding currently has no model

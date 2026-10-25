@@ -117,6 +117,29 @@ describe("built-in agent routes", () => {
     mockBuiltInAgentService.runRoutine.mockResolvedValue({ id: "routine-run-1", source: "manual", status: "queued" });
   });
 
+  it.each([
+    [{ model: "" }, {}, { model: "", binding: { mode: "runtime_default" } }],
+    [{ model: "vendor/exact", apiKey: "secret" }, { aiConnection: { mode: "shared", provider: "9route", connectionId: "private", grantId: "private" }, secret: "secret" }, { model: "vendor/exact", binding: { mode: "shared", provider: "9route" } }],
+  ])("projects identical allowlisted setup metadata on list/get/provision", async (adapterConfig, runtimeConfig, expected) => {
+    const state = builtInState();
+    Object.assign(state.agent, { adapterConfig, runtimeConfig });
+    mockBuiltInAgentService.list.mockResolvedValue([state]);
+    mockBuiltInAgentService.get.mockResolvedValue(state);
+    mockBuiltInAgentService.provision.mockResolvedValue({ state, approval: null });
+    const app = await createApp({ type: "board", userId: "board-user", companyIds: [companyId], source: "session" });
+    const base = `/api/companies/${companyId}/built-in-agents`;
+    const list = await request(app).get(base).expect(200);
+    const get = await request(app).get(`${base}/briefs/status`).expect(200);
+    const provision = await request(app).post(`${base}/briefs/provision`).send({}).expect(200);
+    for (const payload of [list.body[0], get.body, provision.body]) {
+      expect(payload.setupMetadata).toEqual(expected);
+      expect(payload.agent.adapterConfig).toEqual({});
+      expect(payload.agent.runtimeConfig).toEqual({});
+      expect(JSON.stringify(payload)).not.toContain("private");
+      expect(JSON.stringify(payload)).not.toContain("secret");
+    }
+  });
+
   it("lists built-in agent state for actors with company access", async () => {
     const app = await createApp({
       type: "board",

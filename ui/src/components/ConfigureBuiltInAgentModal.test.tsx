@@ -1,3 +1,4 @@
+import { redactBuiltInAgentSetup } from "@paperclipai/shared/built-in-agent-setup";
 // @vitest-environment jsdom
 
 import { flushSync } from "react-dom";
@@ -190,10 +191,34 @@ describe("ConfigureBuiltInAgentModal (PAP-12978)", () => {
   it("keeps catalog discovery for an explicitly bound Codex agent", async () => {
     adapterModelsMock.mockResolvedValue([{ id: "bound/exact", label: "Bound model" }]);
     const agent = { adapterType: "codex_local", adapterConfig: { model: "bound/exact" }, runtimeConfig: { aiConnection: { mode: "responsible_user", provider: "9route", method: "api_key" } } } as unknown as NonNullable<BuiltInAgentState["agent"]>;
-    await renderModal(makeState({ agent }));
-    expect(adapterModelsMock).toHaveBeenCalled();
+    await renderModal(makeState({ ...redactBuiltInAgentSetup(agent) }));
+    expect(adapterModelsMock).toHaveBeenCalledWith("c1", "codex_local", { provider: "9route" });
+    expect(document.body.querySelector<HTMLInputElement>('[data-testid="model-input"]')?.value).toBe("bound/exact");
     expect(document.body.querySelector('[data-testid="model-input"]')?.getAttribute("data-models")).toContain("bound/exact");
     expect(findButton("Configure")!.disabled).toBe(false);
+    provisionMock.mockResolvedValue(makeState());
+    flushSync(() => findButton("Configure")!.click());
+    await flushReact();
+    expect(provisionMock).toHaveBeenCalledWith("c1", "briefs", {});
+  });
+
+  it.each(["", "vendor/exact"])("preserves redacted saved model %s on reload and no-op submit", async (model) => {
+    const agent = { adapterType: "codex_local", adapterConfig: { model, apiKey: "secret" }, runtimeConfig: {} } as unknown as NonNullable<BuiltInAgentState["agent"]>;
+    const wireState = makeState({ ...redactBuiltInAgentSetup(agent) });
+    provisionMock.mockResolvedValue(wireState);
+    await renderModal(JSON.parse(JSON.stringify(wireState)));
+    expect(document.body.querySelector<HTMLInputElement>('[data-testid="model-input"]')?.value).toBe(model);
+    expect(adapterModelsMock).not.toHaveBeenCalled();
+    flushSync(() => findButton("Configure")!.click());
+    await flushReact();
+    expect(provisionMock).toHaveBeenCalledWith("c1", "briefs", {});
+  });
+
+  it("blocks configuration when the server omitted setup metadata", async () => {
+    await renderModal(makeState({ agent: { adapterType: "codex_local", adapterConfig: {}, runtimeConfig: {} } as NonNullable<BuiltInAgentState["agent"]> }));
+    expect(findButton("Configure")!.disabled).toBe(true);
+    expect(adapterModelsMock).not.toHaveBeenCalled();
+    expect(provisionMock).not.toHaveBeenCalled();
   });
 
   it("prefills a built-in's default adapter and model", async () => {
