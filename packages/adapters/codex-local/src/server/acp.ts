@@ -16,6 +16,7 @@ import {
 import { inferOpenAiCompatibleBiller, resolveManagedOpenAiBilling } from "@paperclipai/adapter-utils";
 import {
   ensureAdapterExecutionTargetCommandResolvable,
+  adapterExecutionTargetIsRemote,
   readAdapterExecutionTarget,
   resolveAdapterExecutionTargetCwd,
 } from "@paperclipai/adapter-utils/execution-target";
@@ -51,7 +52,7 @@ import {
   seedManagedCodexHome,
   stageCodexHomeForSync,
 } from "./codex-home.js";
-import { prepareCodexRuntimeConfig } from "./runtime-config.js";
+import { prepareCodexRuntimeConfig, resolveCodexRuntimeProviderEnv } from "./runtime-config.js";
 import { ADAPTER_AUTH_MISSING_CHECK_CODE } from "./auth-check.js";
 import { checkCodexCliVersionForModel } from "./cli-version.js";
 
@@ -383,7 +384,17 @@ export function createCodexAcpExecutor(options: CodexAcpExecutorOptions = {}): C
     } else if (!configuredCodexHome) {
       effectiveCodexHome = await prepareManagedCodexHome(process.env, ctx.onLog, ctx.agent.companyId, { apiKey: configuredApiKey });
     }
-    const runtimeEnv = { ...envConfig, ...(effectiveCodexHome ? { CODEX_HOME: effectiveCodexHome } : {}) };
+    const target = readAdapterExecutionTarget({
+      executionTarget: ctx.executionTarget,
+      legacyRemoteExecution: ctx.executionTransport?.remoteExecution,
+    });
+    // Forward the selected local runtime provider's declared env dependencies
+    // through the explicit env path, which also invalidates stale warm sessions.
+    const providerEnv = !managedAiConnection && !adapterExecutionTargetIsRemote(target)
+      && (!configuredCodexHome || configuredHomeIsManaged)
+      ? resolveCodexRuntimeProviderEnv(envConfig, process.env)
+      : {};
+    const runtimeEnv = { ...providerEnv, ...envConfig, ...(effectiveCodexHome ? { CODEX_HOME: effectiveCodexHome } : {}) };
     const envStrings = Object.fromEntries(Object.entries(runtimeEnv).filter(
       (entry): entry is [string, string] => typeof entry[1] === "string",
     ));

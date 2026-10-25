@@ -11,6 +11,32 @@ type ParsedCodexProvidersConfig = {
   modelProvider: string | null;
 };
 
+export function resolveCodexRuntimeProviderEnv(
+  env: Record<string, unknown>,
+  inheritedEnv: NodeJS.ProcessEnv,
+): Record<string, string> {
+  // Agent-owned provider metadata must never select secrets from the host.
+  if (Object.prototype.hasOwnProperty.call(env, "PAPERCLIP_CODEX_PROVIDERS")) return {};
+  const parsed = parseCodexProvidersConfig(
+    inheritedEnv.PAPERCLIP_CODEX_PROVIDERS,
+    () => undefined,
+    [],
+  );
+  const provider = parsed?.modelProvider ? parsed.providers[parsed.modelProvider] : null;
+  if (!provider) return {};
+  const names = [provider.env_key, ...Object.values(
+    isPlainObject(provider.env_http_headers) ? provider.env_http_headers : {},
+  )];
+  const resolved: Record<string, string> = {};
+  for (const name of names) {
+    if (typeof name !== "string" || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) continue;
+    if (/^(?:PAPERCLIP_|NODE_|LD_|DYLD_)/i.test(name)) continue;
+    if (Object.prototype.hasOwnProperty.call(env, name)) continue;
+    if (typeof inheritedEnv[name] === "string") resolved[name] = inheritedEnv[name];
+  }
+  return resolved;
+}
+
 // Marker comments delimiting the Paperclip-managed regions of config.toml.
 // TOML requires root-level keys (model_provider) to appear before the first
 // table header, while [model_providers.*] tables must not swallow the user's

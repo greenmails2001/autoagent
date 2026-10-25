@@ -2,7 +2,28 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { prepareCodexRuntimeConfig } from "./runtime-config.js";
+import { prepareCodexRuntimeConfig, resolveCodexRuntimeProviderEnv } from "./runtime-config.js";
+
+it("never lets agent provider metadata select host secrets", () => {
+  const metadata = JSON.stringify({ model_provider: "gateway", providers: {
+    gateway: { name: "gateway", base_url: "https://example.invalid", env_key: "PRIVATE_KEY" },
+  } });
+  expect(resolveCodexRuntimeProviderEnv({ PAPERCLIP_CODEX_PROVIDERS: metadata }, {
+    PAPERCLIP_CODEX_PROVIDERS: metadata, PRIVATE_KEY: "synthetic",
+  })).toEqual({});
+});
+
+it("copies only safe selected-provider dependencies and honors explicit values", () => {
+  const host = { PAPERCLIP_CODEX_PROVIDERS: JSON.stringify({ model_provider: "gateway", providers: {
+    gateway: { env_key: "GATEWAY_KEY", env_http_headers: {
+      "x-token": "HEADER_KEY", "x-node": "NODE_OPTIONS", "x-invalid": "bad-name",
+    } }, other: { env_key: "OTHER_KEY" },
+  } }), GATEWAY_KEY: "synthetic", HEADER_KEY: "header", OTHER_KEY: "other", NODE_OPTIONS: "unsafe" };
+  expect(resolveCodexRuntimeProviderEnv({}, host)).toEqual({ GATEWAY_KEY: "synthetic", HEADER_KEY: "header" });
+  expect(resolveCodexRuntimeProviderEnv({ GATEWAY_KEY: "", HEADER_KEY: "explicit" }, host)).toEqual({});
+  expect(resolveCodexRuntimeProviderEnv({}, { PAPERCLIP_CODEX_PROVIDERS: "invalid" })).toEqual({});
+  expect(resolveCodexRuntimeProviderEnv({}, {})).toEqual({});
+});
 
 const cleanupPaths = new Set<string>();
 
