@@ -37,6 +37,22 @@ Preconditions: follow the [baseline](./README.md#before-driving-a-journey). Use 
 
 Automated: [new agent page](../../ui/src/pages/NewAgent.test.tsx) and [configuration form](../../ui/src/components/AgentConfigForm.render.test.tsx) cover mocked UI behavior.
 
+Built-in responses expose only `setupMetadata.model` and binding mode/provider
+alongside redacted adapter/runtime configs. Company access protects reads;
+provisioning also requires `agents:create`. The modal preserves saved canonical
+IDs and omits unchanged adapter setup on submit. Missing metadata blocks setup
+until reload rather than treating it as Runtime default.
+
+For Codex with Runtime default, the generic adapter catalog is not proof that
+the runtime supports an ID. Setup offers Default/custom/saved IDs and passes
+canonical values without adding a prefix. Onboarding currently has no model
+picker and preserves the draft's default or canonical ID. Bound providers keep
+their existing discovery behavior. Coverage includes
+[onboarding](../../ui/src/components/OnboardingWizard.test.tsx),
+[Agent Detail variants](../../ui/src/pages/AgentDetail.catalog.test.tsx), and
+[built-in setup](../../ui/src/components/ConfigureBuiltInAgentModal.test.tsx).
+Custom IDs still require a runtime probe before claiming model support.
+
 Manual: Hire an agent with a distinct name and role. Complete any required approval, reload the roster, and open its configuration. Confirm manager, adapter, and model persisted; run a small task to prove execution readiness.
 
 The current hiring wizard assigns the first hire CEO and subsequent hires
@@ -60,4 +76,9 @@ Manual: Inspect a manager and report, change the relationship through the offere
 
 - A roster entry is not proof of an authenticated or invokable adapter.
 - Pending hires may live in approval/task surfaces rather than the active roster.
+- Built-in Codex setup records an explicit Default as `model: ""`; a lazy
+  provision with untouched `{}` still needs setup. The
+  [built-in service tests](../../server/src/__tests__/built-in-agents.test.ts)
+  check Default/custom persistence in an isolated database. Readiness here
+  describes configuration completeness, not a successful runtime probe.
 - Skill and tool grants are separate: see [skills](./skills.md) and [app permissions](./app-permissions.md).

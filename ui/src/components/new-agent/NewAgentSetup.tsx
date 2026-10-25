@@ -158,6 +158,7 @@ function Setup({
   );
   const [connection, setConnection] = useState<ProviderConnection | null>(null);
   const aiBinding = runtimeAiBinding ?? connection?.aiConnection;
+  const runtimeDefaultCodex = brandType === "codex_local" && !aiBinding;
   const connectionModels = useConnectionModels(companyId, aiBinding, brandType);
   const [repository, setRepository] = useState("");
   const [branch, setBranch] = useState("");
@@ -228,7 +229,7 @@ function Setup({
   const models = useQuery({
     queryKey: queryKeys.agents.adapterModels(companyId, brandType, null, aiBinding?.provider),
     queryFn: () => agentsApi.adapterModels(companyId, brandType, { provider: aiBinding?.provider }),
-    enabled: Boolean(brandType) && showModel && !connectionModels,
+    enabled: Boolean(brandType) && showModel && !connectionModels && !runtimeDefaultCodex,
     retry: false,
   });
   const companySecrets = useQuery({
@@ -866,8 +867,9 @@ function Setup({
                           <div className="grid items-start gap-5 sm:grid-cols-2">
                             {showModel && !usingKimiApi && (
                               <ModelDropdown
+                                key={`${brandType}:${JSON.stringify(aiBinding ?? null)}`}
                                 presentation="native"
-                                models={connectionModels?.models ?? models.data ?? []}
+                                models={connectionModels?.models ?? (runtimeDefaultCodex ? [] : models.data ?? [])}
                                 loadingModels={connectionModels?.isLoading ?? models.isLoading}
                                 onRefreshModels={connectionModels?.refreshModels}
                                 refreshingModels={connectionModels?.refreshing}

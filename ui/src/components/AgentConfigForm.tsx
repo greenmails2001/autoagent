@@ -600,6 +600,10 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
   // ---- Resolve values ----
   const config = !isCreate ? ((props.agent.adapterConfig ?? {}) as Record<string, unknown>) : {};
   const runtimeConfig = !isCreate ? ((props.agent.runtimeConfig ?? {}) as Record<string, unknown>) : {};
+  const overlayRuntimeConfig = overlay.runtime.runtimeConfig as Record<string, unknown> | undefined;
+  const effectiveAiConnection = overlayRuntimeConfig !== undefined
+    ? overlayRuntimeConfig.aiConnection
+    : runtimeConfig.aiConnection;
   const heartbeat = !isCreate ? ((runtimeConfig.heartbeat ?? {}) as Record<string, unknown>) : {};
   const debug = !isCreate ? ((runtimeConfig.debug ?? {}) as Record<string, unknown>) : {};
 
@@ -900,9 +904,12 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
       : eff("adapterConfig", "provider", config.provider === "acpx" && config.acpxAgent === "codex" ? "codex" : config.provider ?? "codex"))
     : undefined;
   const modelProvider = adapterType === "opencode_local" && aiConnectionBindingSchema.safeParse(
-    (overlay.runtime.runtimeConfig as Record<string, unknown> | undefined)?.aiConnection ?? runtimeConfig.aiConnection,
+    effectiveAiConnection,
   ).data?.provider === "openrouter" ? "openrouter" : runnerProvider;
-  const connectionModels = useConnectionModels(selectedCompanyId, isCreate ? undefined : aiConnectionBindingSchema.safeParse((overlay.runtime.runtimeConfig as Record<string, unknown> | undefined)?.aiConnection ?? runtimeConfig.aiConnection).data, aiRoutingHarness(adapterType, runnerProvider, eff("adapterConfig", "acpxAgent", config.acpxAgent)));
+  const connectionModels = useConnectionModels(selectedCompanyId, isCreate ? undefined : aiConnectionBindingSchema.safeParse(effectiveAiConnection).data, aiRoutingHarness(adapterType, runnerProvider, eff("adapterConfig", "acpxAgent", config.acpxAgent)));
+  // The generic Codex endpoint is an OpenAI/static catalog, not discovery of
+  // this runtime's selected provider. Default/custom is safer than guessed IDs.
+  const runtimeDefaultCodex = adapterType === "codex_local" && !effectiveAiConnection;
   // Fetch adapter models for the effective provider, including unsaved changes.
   const modelQueryKey = selectedCompanyId
     ? queryKeys.agents.adapterModels(selectedCompanyId, adapterType, currentDefaultEnvironmentId || null, modelProvider)
@@ -917,11 +924,11 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
       environmentId: currentDefaultEnvironmentId || null,
       provider: modelProvider,
     }),
-    enabled: Boolean(selectedCompanyId) && !connectionModels,
+    enabled: Boolean(selectedCompanyId) && !connectionModels && !runtimeDefaultCodex,
   });
   const [refreshModelsError, setRefreshModelsError] = useState<string | null>(null);
   const [refreshingModels, setRefreshingModels] = useState(false);
-  const models = connectionModels?.models ?? fetchedModels ?? externalModels ?? [];
+  const models = connectionModels?.models ?? (runtimeDefaultCodex ? [] : fetchedModels ?? externalModels ?? []);
   const modelError = connectionModels ? connectionModels.error : fetchedModelsError;
   const adapterCommandField = "command";
   const {
@@ -1078,9 +1085,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
       });
       const adapterConfig = buildAdapterConfigForTest(adapterConfigPatch);
       const agentId = isCreate ? undefined : props.agent.id;
-      const aiConnection = isCreate ? undefined : aiRuntimeConnectionBindingSchema.safeParse(
-        (overlay.runtime.runtimeConfig as Record<string, unknown> | undefined)?.aiConnection ?? props.agent.runtimeConfig.aiConnection,
-      ).data;
+      const aiConnection = isCreate ? undefined : aiRuntimeConnectionBindingSchema.safeParse(effectiveAiConnection).data;
       if (props.compactTestFeedback) {
         const providerAdapter = adapterType === "paperclip_runner"
           ? adapterConfig.provider === "codex" ? "codex_local"
@@ -1166,7 +1171,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
     environmentCapabilities?.sandboxProviders?.[effectiveLoginProvider]?.supportsLoginPty === true;
   const loginNeedsPty = adapterCaps.login != null;
   const showAdapterLogin =
-    (isCreate || !((overlay.runtime.runtimeConfig as Record<string, unknown> | undefined)?.aiConnection ?? runtimeConfig.aiConnection)) &&
+    (isCreate || !effectiveAiConnection) &&
     adapterSupportsSandboxLogin &&
     effectiveLoginEnvironment?.driver === "sandbox" &&
     Boolean(effectiveLoginEnvironmentId) &&
@@ -1686,9 +1691,18 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
           )}
 
           {!isDotRunner && !isCreate && selectedCompanyId && <AiConnectionField companyId={selectedCompanyId} agentId={props.agent.id} agentName={props.agent.name} adapterType={aiRoutingHarness(adapterType, eff("adapterConfig", "provider", config.provider), eff("adapterConfig", "acpxAgent", config.acpxAgent))}
-            routerAdapterType={adapterType} value={aiRuntimeConnectionBindingSchema.safeParse((overlay.runtime.runtimeConfig as Record<string, unknown> | undefined)?.aiConnection ?? runtimeConfig.aiConnection).data}
+            routerAdapterType={adapterType} value={aiRuntimeConnectionBindingSchema.safeParse(effectiveAiConnection).data}
             model={String(eff("adapterConfig", "model", config.model) ?? "")} environmentId={currentDefaultEnvironmentId || undefined} legacy
-            onChange={binding => mark("runtime", "runtimeConfig", { ...runtimeConfig, aiConnection: binding })} />}
+            onChange={binding => {
+              const nextRuntimeConfig = { ...runtimeConfig };
+              nextRuntimeConfig.aiConnection = binding;
+              mark("runtime", "runtimeConfig", nextRuntimeConfig);
+            }}
+            onClear={() => {
+              const nextRuntimeConfig = { ...runtimeConfig };
+              delete nextRuntimeConfig.aiConnection;
+              mark("runtime", "runtimeConfig", nextRuntimeConfig);
+            }} />}
 
           {showInlineAdapterTestEnvironmentFeedback && !props.compactTestFeedback && (testActionError || testEnvironment.error) && (
             <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
@@ -1745,6 +1759,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
           {renderAdapterFields("adapter")}
           {isLocal && (<>
               <ModelDropdown
+                key={`${isCreate ? "create" : props.agent.id}:${adapterType}:${JSON.stringify(effectiveAiConnection ?? null)}`}
                 models={models}
                 loadingModels={connectionModels?.isLoading ?? fetchingModels}
                 value={currentModelId}
@@ -1783,7 +1798,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
                       return result.data?.model ?? null;
                     }}
                 onRefreshModels={
-                  connectionModels ? connectionModels.refreshModels : supportsAdapterModelRefresh(adapterType)
+                  connectionModels ? connectionModels.refreshModels : !runtimeDefaultCodex && supportsAdapterModelRefresh(adapterType)
                     ? handleRefreshModels
                     : undefined
                 }
@@ -3761,7 +3776,7 @@ function ExperimentalBadge() {
 }
 
 export function ModelDropdown({
-  models,
+  models: catalogModels,
   value,
   onChange,
   open,
@@ -3804,8 +3819,22 @@ export function ModelDropdown({
   defaultLabel?: string;
   presentation?: "searchable" | "native";
 }) {
-  const [modelSearch, setModelSearch] = useState("");
   const [enteringCustomModel, setEnteringCustomModel] = useState(false);
+  const [selectedModels, setSelectedModels] = useState<AdapterModel[]>(() => value
+    ? [catalogModels.find(model => model.id === value) ?? { id: value, label: value }]
+    : []);
+  useEffect(() => {
+    if (!value || enteringCustomModel) return;
+    setSelectedModels(previous => previous.some(model => model.id === value) ? previous
+      : [...previous, catalogModels.find(model => model.id === value) ?? { id: value, label: value }]);
+  }, [value, catalogModels, enteringCustomModel]);
+  const models = useMemo(() => [...catalogModels,
+    ...selectedModels.filter(selected => !catalogModels.some(model => model.id === selected.id)),
+  ], [catalogModels, selectedModels]);
+  const [modelSearch, setModelSearch] = useState("");
+  useEffect(() => {
+    if (!open) setModelSearch("");
+  }, [open]);
   const [detectingModel, setDetectingModel] = useState(false);
   const selected = models.find((m) => m.id === value);
   const manualModel = modelSearch.trim();
@@ -3886,6 +3915,10 @@ export function ModelDropdown({
           required={required && !enteringCustomModel}
           onChange={event => {
             const next = event.target.value;
+            if (enteringCustomModel && value) {
+              setSelectedModels(previous => previous.some(model => model.id === value) ? previous
+                : [...previous, { id: value, label: value }]);
+            }
             setEnteringCustomModel(next === customOption);
             if (next !== customOption) onChange(next);
           }}

@@ -51,8 +51,17 @@ async function mountCodex(connections: AiManagedConnectionSummary[]) {
   mocks.list.mockResolvedValue({ currentUserId: "owner", connections, canManageConnections: true });
   flushSync(() => root.render(<QueryClientProvider client={client}>
     <AiConnectionField companyId="company" agentId="agent" agentName="Nova" adapterType="codex_local"
-      value={{ provider: "openai", method: "subscription", mode: "responsible_user" }} onChange={onChange} />
+      value={{ provider: "openai", method: "subscription", mode: "responsible_user" }} onChange={onChange} onClear={() => onChange(undefined)} />
   </QueryClientProvider>));
+  await settle();
+}
+async function chooseConnection(label: string) {
+  const trigger = document.querySelector('[role="combobox"][aria-label="Connection"]')!;
+  flushSync(() => trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
+  await settle();
+  const option = Array.from(document.querySelectorAll<HTMLElement>('[role="option"]')).find(item => item.textContent?.includes(label));
+  expect(option).toBeDefined();
+  flushSync(() => option!.click());
   await settle();
 }
 async function click(label: string) {
@@ -177,4 +186,14 @@ it("renders 9route as a Codex provider and binds the selected provider", async (
     method: "api_key",
     mode: "responsible_user",
   });
+});
+
+it("offers runtime default and clears the specific provider binding", async () => {
+  await mountCodex([
+    account({ provider: "openai", name: "My OpenAI", status: "connected" }),
+  ]);
+
+  await chooseConnection("Runtime default");
+
+  expect(onChange).toHaveBeenCalledWith(undefined);
 });

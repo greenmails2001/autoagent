@@ -1,20 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { ensureModelAiConnectionBinding } from "./agent-ai-connection-default.js";
+import { ensureModelAiConnectionBinding, resolveUpdatedAiConnectionBinding } from "./agent-ai-connection-default.js";
 
-describe("model-derived AI connection binding", () => {
+describe("runtime-default AI connection binding", () => {
   it.each([
     ["N9 DocAI Designer", "document designer"],
     ["Cost Review Worker", "quantity surveyor"],
-  ])("binds %s (%s) to the responsible user's 9route connection for cx models", (_name, _role) => {
+  ])("leaves %s (%s) on the runtime default for cx models", (_name, _role) => {
+    const runtimeConfig = { heartbeat: { enabled: true }, custom: { retained: true } };
     expect(ensureModelAiConnectionBinding(
       "codex_local",
       { model: "cx/gpt-6-sol", reasoningEffort: "high" },
-      { heartbeat: { enabled: true }, custom: { retained: true } },
-    )).toEqual({
-      heartbeat: { enabled: true },
-      custom: { retained: true },
-      aiConnection: { mode: "responsible_user", method: "api_key", provider: "9route" },
-    });
+      runtimeConfig,
+    )).toBe(runtimeConfig);
   });
 
   it("preserves an explicit binding instead of replacing credentials or grants", () => {
@@ -39,15 +36,13 @@ describe("model-derived AI connection binding", () => {
     {},
     { mode: "responsible_user", method: "api_key" },
     { mode: "shared", method: "api_key", provider: "9route" },
-  ])("normalizes a missing or malformed binding (%j) for cx models", (aiConnection) => {
+  ])("does not turn a malformed legacy binding (%j) into a specific provider", (aiConnection) => {
+    const runtimeConfig = { heartbeat: { enabled: true }, aiConnection };
     expect(ensureModelAiConnectionBinding(
       "codex_local",
       { model: "cx/gpt-6-sol" },
-      { heartbeat: { enabled: true }, aiConnection },
-    )).toEqual({
-      heartbeat: { enabled: true },
-      aiConnection: { mode: "responsible_user", method: "api_key", provider: "9route" },
-    });
+      runtimeConfig,
+    )).toBe(runtimeConfig);
   });
 
   it.each([
@@ -58,5 +53,22 @@ describe("model-derived AI connection binding", () => {
   ])("does not derive 9route for adapter %s and config %j", (adapterType, adapterConfig) => {
     const runtimeConfig = { heartbeat: { enabled: true } };
     expect(ensureModelAiConnectionBinding(adapterType, adapterConfig, runtimeConfig)).toBe(runtimeConfig);
+  });
+});
+
+describe("AI connection edit precedence", () => {
+  const existing = { mode: "responsible_user", method: "api_key", provider: "9route" } as const;
+
+  it("keeps the existing specific provider when runtimeConfig is omitted", () => {
+    expect(resolveUpdatedAiConnectionBinding(null, existing)).toEqual(existing);
+  });
+
+  it("clears the specific provider when the replacement runtimeConfig omits aiConnection", () => {
+    expect(resolveUpdatedAiConnectionBinding({ heartbeat: { enabled: true } }, existing)).toBeUndefined();
+  });
+
+  it("uses the explicitly selected provider", () => {
+    const selected = { mode: "responsible_user", method: "subscription", provider: "openai" } as const;
+    expect(resolveUpdatedAiConnectionBinding({ aiConnection: selected }, existing)).toEqual(selected);
   });
 });

@@ -1,3 +1,4 @@
+import { redactBuiltInAgentSetup } from "@paperclipai/shared/built-in-agent-setup";
 import { Router, type Request } from "express";
 import type { Db } from "@paperclipai/db";
 import { builtInAgentEmptyMutationSchema, builtInAgentProvisionSchema, builtInAgentResetSchema } from "@paperclipai/shared";
@@ -61,11 +62,7 @@ function redactBuiltInAgentListState(state: BuiltInAgentState): BuiltInAgentStat
   return {
     ...state,
     definition,
-    agent: {
-      ...state.agent,
-      adapterConfig: {},
-      runtimeConfig: {},
-    },
+    ...redactBuiltInAgentSetup(state.agent),
   };
 }
 

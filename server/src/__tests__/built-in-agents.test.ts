@@ -461,6 +461,19 @@ describeEmbeddedPostgres("built-in agents", () => {
     });
   });
 
+  it.each(["", "vendor/canonical-model"])("accepts an explicit runtime-default Codex selection %s without static catalog validation", async (model) => {
+    const companyId = await seedCompany({ requireApproval: false });
+    const service = builtInAgentService(db);
+    const result = await service.provision(companyId, "briefs", {
+      adapterType: "codex_local", adapterConfig: { model },
+    }, { requestedByUserId: "board-user" });
+    const reloaded = await service.get(companyId, "briefs");
+    expect(reloaded.status).toBe("ready");
+    expect(reloaded.agentId).toBe(result.state.agentId);
+    expect(reloaded.agent?.adapterConfig.model).toBe(model);
+    expect(reloaded.agent?.runtimeConfig?.aiConnection).toBeUndefined();
+  });
+
   it("rejects unknown built-in adapter models before saving setup", async () => {
     const companyId = await seedCompany();
 
