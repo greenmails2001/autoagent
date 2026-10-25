@@ -11,7 +11,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { localEncryptedProvider } from "../secrets/local-encrypted-provider.js";
 import { promises as fs } from "node:fs";
-import { mkdtemp, realpath, rm, access, readFile, writeFile, stat } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, access, readFile, writeFile, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { and, eq, sql } from "drizzle-orm";
@@ -1206,6 +1206,21 @@ console.log(JSON.stringify({ type: "result", subtype: "success", result: "hello"
       await expect(assertManagedAiProjectAuth({}, "openai", target)).resolves.toBeUndefined();
       await expect(assertManagedAiProjectAuth({ args: ["--api-key=override"] }, "xai", target)).rejects.toThrow("overrides");
     } finally { execute.mockRestore(); }
+  });
+  it("keeps managed auth checks inside the explicit local workspace", async () => {
+    const host = await mkdtemp(path.join(os.tmpdir(), "managed-auth-host-"));
+    const workspace = path.join(host, "isolated-workspace");
+    await mkdir(path.join(host, ".codex"), { recursive: true });
+    await mkdir(workspace, { recursive: true });
+    await writeFile(path.join(host, ".codex", "config.toml"), 'model_provider = "host-global"\n');
+    try {
+      await expect(assertManagedAiProjectAuth({ cwd: workspace }, "openai")).resolves.toBeUndefined();
+      await mkdir(path.join(workspace, ".codex"), { recursive: true });
+      await writeFile(path.join(workspace, ".codex", "config.toml"), 'model_provider = "project-local"\n');
+      await expect(assertManagedAiProjectAuth({ cwd: workspace }, "openai")).rejects.toThrow("Project authentication settings conflict");
+    } finally {
+      await rm(host, { recursive: true, force: true });
+    }
   });
   it("keeps personal defaults separate and does not replace the first default", async () => {
     const first = await create("alice", "Alice first");

@@ -488,6 +488,31 @@ describe("agent test-environment route", () => {
     }
   });
 
+  it("validates managed auth against the realized Test Environment workspace", async () => {
+    mockManagedRuntime("api_key");
+    const environmentId = "11111111-1111-4111-8111-111111111111";
+    const target = {
+      kind: "remote", transport: "sandbox", remoteCwd: "/workspace/isolated-test",
+      providerKey: "daytona", runner: { execute: vi.fn(async () => ({
+        exitCode: 0, signal: null, timedOut: false, stdout: "", stderr: "",
+      })) },
+    };
+    mockResolveEnvironmentExecutionTarget.mockResolvedValue(target);
+    const app = await createApp();
+    const res = await request(app)
+      .post("/api/companies/company-1/adapters/external_test/test-environment")
+      .send({
+        adapterConfig: {},
+        environmentId,
+        aiConnection: { provider: "anthropic", method: "api_key", mode: "responsible_user" },
+      });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockPrepareManagedAiRuntime).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      config: expect.objectContaining({ cwd: "/workspace/isolated-test" }),
+      projectAuthTarget: target,
+    }));
+  });
+
   it("fails adoption of an api_key connection the provider no longer accepts", async () => {
     mockManagedRuntime("api_key");
     const { unprocessable } = await import("../errors.js");
