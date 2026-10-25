@@ -27,6 +27,17 @@ const ready = {
   checks: [{ code: "runtime", level: "info", message: "Ready" }],
 };
 beforeEach(() => testEnvironment.mockReset());
+it.each([undefined, { mode: "responsible_user", provider: "9route", method: "api_key" } as const])("keeps canonical model IDs in ACP readiness and CLI hello (binding=%s)", async (aiConnection) => {
+  testEnvironment.mockResolvedValue(ready);
+  for (const model of ["cx/gpt-6-sol", "runtime/vendor-model", "cx/gpt-6-sol"]) {
+    await testAgentSetup({ ...input, adapterType: "codex_local", providerAdapter: "codex_local", aiConnection,
+      adapterConfig: { engine: "acp", model },
+    });
+    const calls = testEnvironment.mock.calls.slice(-2);
+    expect(calls.map(call => call[2].adapterConfig)).toEqual([{ engine: "acp", model }, { engine: "cli", model }]);
+    expect(calls.map(call => call[2].aiConnection)).toEqual([aiConnection, aiConnection]);
+  }
+});
 it("does not launch an ambient provider hello test for a pool preview", async () => {
   testEnvironment.mockResolvedValue({ ...ready, status: "warn", checks: [{ code: "ai_connection_pool_task_test_required", level: "warn", message: "Run a task" }] });
   await testAgentSetup({ ...input, aiConnection: { mode: "router", connectionId: "pool-id" } });

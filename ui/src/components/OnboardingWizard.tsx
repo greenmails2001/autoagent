@@ -919,8 +919,9 @@ function OnboardingWizardInner({
     createdCompanyGoalId, createdProjectId, createdIssueRef,
   ]);
 
+  const runtimeDefaultCodex = adapterType === "codex_local" && !managedBindingForStep();
   const {
-    data: adapterModels,
+    data: fetchedAdapterModels,
     error: adapterModelsError,
     isLoading: adapterModelsLoading,
     isFetching: adapterModelsFetching
@@ -932,8 +933,9 @@ function OnboardingWizardInner({
       : ["agents", "none", "adapter-models", adapterType, null],
     queryFn: () => agentsApi.adapterModels(createdCompanyId!, adapterType, { environmentId: null }),
     // Models are picked on step 4 (Connect a model).
-    enabled: Boolean(createdCompanyId) && effectiveOnboardingOpen && step === 4
+    enabled: Boolean(createdCompanyId) && effectiveOnboardingOpen && step === 4 && !runtimeDefaultCodex
   });
+  const adapterModels = runtimeDefaultCodex ? [] : fetchedAdapterModels;
   const getCapabilities = useAdapterCapabilities();
   const adapterCaps = getCapabilities(adapterType);
 

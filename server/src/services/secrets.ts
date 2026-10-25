@@ -4743,58 +4743,80 @@ export function secretService(db: Db | DbTransaction) {
       const pathPrefixes = [...new Set(normalizedRefs.map((ref) => ref.configPath.split(".")[0]))];
 
       await db.transaction(async (tx) => {
-        if (options?.replaceAll) {
-          await tx
-            .delete(companySecretBindings)
-            .where(
-              and(
-                eq(companySecretBindings.companyId, companyId),
-                eq(companySecretBindings.targetType, target.targetType),
-                eq(companySecretBindings.targetId, target.targetId),
-              ),
-            );
-        } else if (pathPrefixes.length > 0) {
-          for (const pathPrefix of pathPrefixes) {
-            await tx
-              .delete(companySecretBindings)
-              .where(
-                and(
-                  eq(companySecretBindings.companyId, companyId),
-                  eq(companySecretBindings.targetType, target.targetType),
-                  eq(companySecretBindings.targetId, target.targetId),
-                  or(
-                    eq(companySecretBindings.configPath, pathPrefix),
-                    like(companySecretBindings.configPath, `${pathPrefix}.%`),
-                  ),
-                ),
-              );
-          }
-        } else {
-          await tx
-            .delete(companySecretBindings)
-            .where(
-              and(
-                eq(companySecretBindings.companyId, companyId),
-                eq(companySecretBindings.targetType, target.targetType),
-                eq(companySecretBindings.targetId, target.targetId),
-              ),
-            );
-        }
-        if (normalizedRefs.length === 0) return;
-        await tx.insert(companySecretBindings).values(
-          normalizedRefs.map((ref) => ({
-            companyId,
-            secretId: ref.secretId,
-            targetType: target.targetType,
-            targetId: target.targetId,
-            configPath: ref.configPath,
-            versionSelector: String(ref.versionSelector),
-            required: ref.required,
-            label: ref.label,
-            projectionClass: ref.projectionClass,
-            projectionAllowlistKey: ref.projectionAllowlistKey,
-          })),
+        const lockKey = `secret-bindings:${companyId}:${target.targetType}:${target.targetId}`;
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`);
+
+        const existingRows = await tx
+          .select()
+          .from(companySecretBindings)
+          .where(
+            and(
+              eq(companySecretBindings.companyId, companyId),
+              eq(companySecretBindings.targetType, target.targetType),
+              eq(companySecretBindings.targetId, target.targetId),
+            ),
+          )
+          .for("update");
+        const affectsPath = (configPath: string) =>
+          options?.replaceAll || pathPrefixes.length === 0 || pathPrefixes.some(
+            (prefix) => configPath === prefix || configPath.startsWith(`${prefix}.`),
+          );
+        const existingByPath = new Map(
+          existingRows.filter((row) => affectsPath(row.configPath)).map((row) => [row.configPath, row]),
         );
+        const retainedPaths = new Set<string>();
+        const inserts: typeof normalizedRefs = [];
+
+        for (const ref of normalizedRefs) {
+          const existing = retainedPaths.has(ref.configPath) ? undefined : existingByPath.get(ref.configPath);
+          if (!existing) {
+            inserts.push(ref);
+            continue;
+          }
+          retainedPaths.add(ref.configPath);
+          const unchanged = existing.secretId === ref.secretId
+            && existing.versionSelector === ref.versionSelector
+            && existing.required === ref.required
+            && existing.label === ref.label
+            && existing.projectionClass === ref.projectionClass
+            && existing.projectionAllowlistKey === ref.projectionAllowlistKey;
+          if (unchanged) continue;
+          await tx
+            .update(companySecretBindings)
+            .set({
+              secretId: ref.secretId,
+              versionSelector: ref.versionSelector,
+              required: ref.required,
+              label: ref.label,
+              projectionClass: ref.projectionClass,
+              projectionAllowlistKey: ref.projectionAllowlistKey,
+              updatedAt: sql`now()`,
+            })
+            .where(eq(companySecretBindings.id, existing.id));
+        }
+
+        const deleteIds = [...existingByPath.values()]
+          .filter((row) => !retainedPaths.has(row.configPath))
+          .map((row) => row.id);
+        if (deleteIds.length > 0) {
+          await tx.delete(companySecretBindings).where(inArray(companySecretBindings.id, deleteIds));
+        }
+        if (inserts.length > 0) {
+          await tx.insert(companySecretBindings).values(
+            inserts.map((ref) => ({
+              companyId,
+              secretId: ref.secretId,
+              targetType: target.targetType,
+              targetId: target.targetId,
+              configPath: ref.configPath,
+              versionSelector: String(ref.versionSelector),
+              required: ref.required,
+              label: ref.label,
+              projectionClass: ref.projectionClass,
+              projectionAllowlistKey: ref.projectionAllowlistKey,
+            })),
+          );
+        }
       });
       return normalizedRefs;
     },

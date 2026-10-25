@@ -68,11 +68,7 @@ export function ConfigureBuiltInAgentModal({
     () => state.agent?.adapterType ?? defaultAdapterType(state),
   );
   const [model, setModel] = useState<string>(() => {
-    const config = state.agent?.adapterConfig;
-    const configuredModel = typeof config === "object" && config !== null
-      ? (config as Record<string, unknown>).model
-      : null;
-    if (typeof configuredModel === "string") return configuredModel;
+    if (state.agent) return state.setupMetadata?.model ?? "";
     const defaultModel = state.definition.defaultAdapterConfig?.model;
     return typeof defaultModel === "string" ? defaultModel : "";
   });
@@ -97,16 +93,26 @@ export function ConfigureBuiltInAgentModal({
 
   const setupSupportedInModal = isModelBasedAdapter(adapterType);
 
+  const savedAdapter = state.agent?.adapterType;
+  const metadataMissing = Boolean(state.agent && (!state.setupMetadata || state.setupMetadata.binding.mode === "unknown"));
+  const binding = state.setupMetadata?.binding;
+  const runtimeDefaultCodex = adapterType === "codex_local" &&
+    (!state.agent || binding?.mode === "runtime_default");
+  const provider = adapterType === savedAdapter ? binding?.provider : undefined;
+  const catalogAllowed = !metadataMissing && !runtimeDefaultCodex &&
+    (adapterType !== "codex_local" || Boolean(provider));
   const { data: fetchedModels } = useQuery({
-    queryKey: queryKeys.agents.adapterModels(companyId, adapterType, null),
-    queryFn: () => agentsApi.adapterModels(companyId, adapterType, {}),
-    enabled: open && Boolean(companyId) && setupSupportedInModal,
+    queryKey: queryKeys.agents.adapterModels(companyId, adapterType, null, provider),
+    queryFn: () => agentsApi.adapterModels(companyId, adapterType, provider ? { provider } : {}),
+    enabled: open && Boolean(companyId) && setupSupportedInModal && catalogAllowed,
   });
-  const models = fetchedModels ?? [];
+  const models = catalogAllowed ? fetchedModels ?? [] : [];
 
-  const modelRequired = setupSupportedInModal;
+  const modelRequired = setupSupportedInModal && !runtimeDefaultCodex;
   const normalizedModel = model.trim();
+  const unchangedSetup = Boolean(state.agent && adapterType === savedAdapter && model === state.setupMetadata?.model);
   const modelKnown =
+    normalizedModel === state.setupMetadata?.model ||
     !normalizedModel ||
     models.length === 0 ||
     models.some((candidate) => candidate.id === normalizedModel);
@@ -116,9 +122,10 @@ export function ConfigureBuiltInAgentModal({
   const budgetMonthlyCents = parseBudgetMonthlyCents(budgetDollars);
   const budgetValid = !budgetDollars.trim() || budgetMonthlyCents !== undefined;
   const canSubmit =
+    !metadataMissing &&
     budgetValid &&
     modelKnown &&
-    (setupSupportedInModal ? !modelRequired || normalizedModel.length > 0 : true);
+    (setupSupportedInModal ? unchangedSetup || !modelRequired || normalizedModel.length > 0 : true);
   const submitLabel = setupSupportedInModal
     ? `Configure & enable ${definition.displayName}`
     : `Provision ${definition.displayName}`;
@@ -126,10 +133,10 @@ export function ConfigureBuiltInAgentModal({
   const provision = useMutation({
     mutationFn: async () => {
       const adapterConfig: Record<string, unknown> = {};
-      if (model.trim()) adapterConfig.model = model.trim();
+      if (model.trim() || runtimeDefaultCodex) adapterConfig.model = model.trim();
       const result = await builtInAgentsApi.provision(companyId, definition.key, {
-        adapterType,
-        adapterConfig,
+        ...(unchangedSetup
+          ? {} : { adapterType, adapterConfig }),
         ...(budgetMonthlyCents !== undefined ? { budgetMonthlyCents } : {}),
       });
       return result;
@@ -174,7 +181,7 @@ export function ConfigureBuiltInAgentModal({
             />
           </Field>
 
-          {modelRequired && (
+          {setupSupportedInModal && (
             // ModelDropdown supplies its own "Model" Field label + hint.
             <ModelDropdown
               models={models}
@@ -183,13 +190,14 @@ export function ConfigureBuiltInAgentModal({
               open={modelOpen}
               onOpenChange={setModelOpen}
               allowDefault={adapterType !== "opencode_local"}
-              required
+              required={modelRequired}
               groupByProvider={false}
               preserveOrder={adapterCuratesModelOrder(adapterType)}
               creatable
             />
           )}
 
+          {metadataMissing && <p role="alert">Setup metadata is unavailable. Reload before configuring this agent.</p>}
           {modelError && (
             <p className="text-sm text-destructive" role="alert">
               {modelError}

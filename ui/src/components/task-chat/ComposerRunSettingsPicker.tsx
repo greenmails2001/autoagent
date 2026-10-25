@@ -105,6 +105,7 @@ export function ComposerRunSettingsPicker({
   const modelSupported = supportsComposerModel(agent);
   const provider = composerCatalogProvider(agent);
   const binding = aiRuntimeConnectionBindingSchema.safeParse(agent?.runtimeConfig?.aiConnection).data;
+  const runtimeDefaultCodex = agent?.adapterType === "codex_local" && !binding;
   const poolId = binding?.mode === "router" ? binding.connectionId : undefined;
   const { data: fetchedModels = [], isPending: modelsPending } = useQuery({
     queryKey: agent && modelSupported
@@ -113,13 +114,12 @@ export function ComposerRunSettingsPicker({
     queryFn: () => agentsApi.adapterModels(companyId, agent!.adapterType, {
       environmentId: agent!.defaultEnvironmentId ?? null, provider, poolId,
     }),
-    enabled: Boolean(agent && modelSupported && !modelOptionsOverride),
+    enabled: Boolean(agent && modelSupported && !modelOptionsOverride && !runtimeDefaultCodex),
   });
-  // The server resolves instance-declared models first and otherwise returns the
-  // adapter's curated catalog. Do not replace a declared Codex list locally.
+  // A generic Codex catalog cannot verify the runtime-default provider.
   const models: readonly (AdapterModel & { detail?: string })[] = modelOptionsOverride
-    ?? fetchedModels;
-  const catalogPending = modelsPending && !modelOptionsOverride;
+    ?? (runtimeDefaultCodex ? [] : fetchedModels);
+  const catalogPending = modelsPending && !modelOptionsOverride && !runtimeDefaultCodex;
   const base = assigneeValue === currentAssigneeValue
     ? readComposerRunSettings(overrides, agent?.adapterType)
     : DEFAULT_COMPOSER_RUN_SETTINGS;

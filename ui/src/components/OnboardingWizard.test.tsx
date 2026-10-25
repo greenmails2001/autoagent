@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { act } from "react";
-import type { LocalAiLoginStatus } from "@paperclipai/shared";
+import type { AiManagedConnectionSummary, LocalAiLoginStatus } from "@paperclipai/shared";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -16,7 +16,7 @@ const mockAuthApi = vi.hoisted(() => ({ getSession: vi.fn() }));
 const localHealth = vi.hoisted(() => ({ get: vi.fn() }));
 vi.mock("@/api/health", () => ({ healthApi: localHealth }));
 const managedApi = vi.hoisted(() => ({
-  list: vi.fn(async () => ({ currentUserId: "user-1", connections: [] })),
+  list: vi.fn(async () => ({ currentUserId: "user-1", connections: [] as AiManagedConnectionSummary[] })),
   startLocalLogin: vi.fn(async () => ({ sessionId: "local-attempt", expiresAt: "2099-01-01T00:00:00Z" })),
   submitLocalLoginCode: vi.fn(async () => ({ ok: true })),
   checkLocalLogin: vi.fn(async (): Promise<LocalAiLoginStatus> => ({ status: "sign_in_required" })),
@@ -409,6 +409,56 @@ describe("OnboardingWizard restore-gate (stale localStorage across accounts)", (
   afterEach(() => {
     document.body.innerHTML = "";
     vi.clearAllMocks();
+  });
+
+  it.each(["", "vendor/canonical-model"])("keeps runtime-default Codex draft %s without fetching the OpenAI catalog", async (model) => {
+    mockCompaniesApi.list.mockResolvedValue([{ id: "c1", name: "Acme", issuePrefix: "AC" }]);
+    mockAdapterRegistry.list = [{ type: "codex_local" }];
+    mockAgentsApi.adapterModels.mockClear();
+    window.localStorage.setItem(ONBOARDING_STORAGE_KEY, JSON.stringify({
+      step: 4, createdCompanyId: "c1", adapterType: "codex_local", model, agentName: "Ada",
+    }));
+    const { root, queryClient } = render();
+    try {
+      await renderWizardView(root, queryClient);
+      await flushReact();
+      expect(document.body.textContent).toContain("Connect a model");
+      expect(mockAgentsApi.adapterModels).not.toHaveBeenCalled();
+      expect(JSON.parse(window.localStorage.getItem(ONBOARDING_STORAGE_KEY)!).model).toBe(model);
+      expect(document.body.textContent).not.toContain("gpt-6.1-sol");
+    } finally { await act(async () => root.unmount()); queryClient.clear(); }
+  });
+
+  it("keeps Codex discovery after an explicit saved-provider binding resolves", async () => {
+    managedApi.list.mockResolvedValue({ currentUserId: "user-1", connections: [{
+      id: "conn-1", grantId: "grant-1", companyId: "c1", provider: "openai", method: "subscription",
+      status: "connected", ownership: "personal", ownerUserId: "user-1", isDefault: true, name: "Saved subscription",
+    } as AiManagedConnectionSummary] });
+    mockCompaniesApi.list.mockResolvedValue([{ id: "c1", name: "Acme", issuePrefix: "AC" }]);
+    mockAdapterRegistry.list = [{ type: "codex_local" }];
+    mockAgentsApi.adapterModels.mockClear();
+    window.localStorage.setItem(ONBOARDING_STORAGE_KEY, JSON.stringify({ step: 4, createdCompanyId: "c1", adapterType: "codex_local", agentName: "Ada" }));
+    const { root, queryClient } = render();
+    try {
+      await renderWizardView(root, queryClient);
+      for (let tick = 0; tick < 12; tick++) await flushReact();
+      expect(mockAgentsApi.adapterModels).toHaveBeenCalledWith("c1", "codex_local", { environmentId: null });
+    } finally {
+      await act(async () => root.unmount()); queryClient.clear();
+      managedApi.list.mockResolvedValue({ currentUserId: "user-1", connections: [] });
+    }
+  });
+
+  it("keeps adapter discovery for other onboarding adapters", async () => {
+    mockCompaniesApi.list.mockResolvedValue([{ id: "c1", name: "Acme", issuePrefix: "AC" }]);
+    mockAdapterRegistry.list = [{ type: "claude_local" }];
+    mockAgentsApi.adapterModels.mockClear();
+    window.localStorage.setItem(ONBOARDING_STORAGE_KEY, JSON.stringify({ step: 4, createdCompanyId: "c1", adapterType: "claude_local", agentName: "Ada" }));
+    const { root, queryClient } = render();
+    try {
+      await renderWizardView(root, queryClient); await flushReact();
+      expect(mockAgentsApi.adapterModels).toHaveBeenCalledWith("c1", "claude_local", { environmentId: null });
+    } finally { await act(async () => root.unmount()); queryClient.clear(); }
   });
 
   describe("step 1 leads straight to the agent — there is no mission step 2", () => {

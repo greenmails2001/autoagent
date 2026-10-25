@@ -1486,6 +1486,153 @@ describeEmbeddedPostgres("secretService", () => {
     });
   });
 
+  it("preserves binding identity and timestamps when a replace-all sync is a semantic no-op", async () => {
+    const companyId = await seedCompany();
+    const svc = secretService(db);
+    const secret = await svc.create(companyId, {
+      name: `stable-binding-${randomUUID()}`,
+      provider: "local_encrypted",
+      value: "stable-value",
+    });
+    const target = { targetType: "agent" as const, targetId: randomUUID() };
+    const refs = [{
+      secretId: secret.id,
+      configPath: "env.STABLE_KEY",
+      versionSelector: "latest" as const,
+      required: true,
+      label: "Stable credential",
+    }];
+
+    await svc.syncSecretRefsForTarget(companyId, target, refs, { replaceAll: true });
+    const [created] = await db.select().from(companySecretBindings)
+      .where(eq(companySecretBindings.targetId, target.targetId));
+
+    await svc.syncSecretRefsForTarget(companyId, target, refs, { replaceAll: true });
+    const [unchanged] = await db.select().from(companySecretBindings)
+      .where(eq(companySecretBindings.targetId, target.targetId));
+
+    expect(unchanged).toEqual(created);
+  });
+
+  it("updates, inserts, and deletes only the binding delta while preserving stable row identities", async () => {
+    const companyId = await seedCompany();
+    const svc = secretService(db);
+    const firstSecret = await svc.create(companyId, {
+      name: `delta-first-${randomUUID()}`,
+      provider: "local_encrypted",
+      value: "first",
+    });
+    const secondSecret = await svc.create(companyId, {
+      name: `delta-second-${randomUUID()}`,
+      provider: "local_encrypted",
+      value: "second",
+    });
+    const replacementSecret = await svc.create(companyId, {
+      name: `delta-replacement-${randomUUID()}`,
+      provider: "local_encrypted",
+      value: "replacement",
+    });
+    const removedSecret = await svc.create(companyId, {
+      name: `delta-removed-${randomUUID()}`,
+      provider: "local_encrypted",
+      value: "removed",
+    });
+    const addedSecret = await svc.create(companyId, {
+      name: `delta-added-${randomUUID()}`,
+      provider: "local_encrypted",
+      value: "added",
+    });
+    const target = { targetType: "agent" as const, targetId: randomUUID() };
+
+    await svc.syncSecretRefsForTarget(companyId, target, [
+      { secretId: firstSecret.id, configPath: "env.FIRST" },
+      { secretId: secondSecret.id, configPath: "env.SECOND" },
+      { secretId: removedSecret.id, configPath: "env.REMOVED" },
+    ], { replaceAll: true });
+    const fixedTime = new Date("2024-01-02T03:04:05.000Z");
+    await db.update(companySecretBindings)
+      .set({ createdAt: fixedTime, updatedAt: fixedTime })
+      .where(eq(companySecretBindings.targetId, target.targetId));
+    const before = await db.select().from(companySecretBindings)
+      .where(eq(companySecretBindings.targetId, target.targetId));
+
+    await svc.syncSecretRefsForTarget(companyId, target, [
+      { secretId: firstSecret.id, configPath: "env.FIRST" },
+      { secretId: replacementSecret.id, configPath: "env.SECOND" },
+      { secretId: addedSecret.id, configPath: "env.ADDED" },
+    ], { replaceAll: true });
+    const after = await db.select().from(companySecretBindings)
+      .where(eq(companySecretBindings.targetId, target.targetId));
+    const beforeByPath = new Map(before.map((row) => [row.configPath, row]));
+    const afterByPath = new Map(after.map((row) => [row.configPath, row]));
+
+    expect(afterByPath.get("env.FIRST")).toEqual(beforeByPath.get("env.FIRST"));
+    expect(afterByPath.get("env.SECOND")).toMatchObject({
+      id: beforeByPath.get("env.SECOND")?.id,
+      createdAt: fixedTime,
+      secretId: replacementSecret.id,
+    });
+    expect(afterByPath.get("env.SECOND")?.updatedAt.getTime()).toBeGreaterThan(fixedTime.getTime());
+    expect(afterByPath.has("env.REMOVED")).toBe(false);
+    expect(afterByPath.get("env.ADDED")).toMatchObject({
+      secretId: addedSecret.id,
+      configPath: "env.ADDED",
+    });
+    expect(before.map((row) => row.id)).not.toContain(afterByPath.get("env.ADDED")?.id);
+  });
+
+  it("serializes concurrent no-op syncs without churning the binding row", async () => {
+    const companyId = await seedCompany();
+    const svc = secretService(db);
+    const secret = await svc.create(companyId, {
+      name: `concurrent-binding-${randomUUID()}`,
+      provider: "local_encrypted",
+      value: "concurrent",
+    });
+    const target = { targetType: "agent" as const, targetId: randomUUID() };
+    const refs = [{ secretId: secret.id, configPath: "env.CONCURRENT" }];
+    await svc.syncSecretRefsForTarget(companyId, target, refs, { replaceAll: true });
+    const [before] = await db.select().from(companySecretBindings)
+      .where(eq(companySecretBindings.targetId, target.targetId));
+
+    await Promise.all(Array.from({ length: 4 }, () =>
+      svc.syncSecretRefsForTarget(companyId, target, refs, { replaceAll: true })));
+
+    const rows = await db.select().from(companySecretBindings)
+      .where(eq(companySecretBindings.targetId, target.targetId));
+    expect(rows).toEqual([before]);
+  });
+
+  it("rolls back the entire sync when desired refs violate the target-path uniqueness contract", async () => {
+    const companyId = await seedCompany();
+    const svc = secretService(db);
+    const originalSecret = await svc.create(companyId, {
+      name: `rollback-original-${randomUUID()}`,
+      provider: "local_encrypted",
+      value: "original",
+    });
+    const conflictingSecret = await svc.create(companyId, {
+      name: `rollback-conflict-${randomUUID()}`,
+      provider: "local_encrypted",
+      value: "conflict",
+    });
+    const target = { targetType: "agent" as const, targetId: randomUUID() };
+    await svc.syncSecretRefsForTarget(companyId, target, [
+      { secretId: originalSecret.id, configPath: "env.ROLLBACK" },
+    ], { replaceAll: true });
+    const [before] = await db.select().from(companySecretBindings)
+      .where(eq(companySecretBindings.targetId, target.targetId));
+
+    await expect(svc.syncSecretRefsForTarget(companyId, target, [
+      { secretId: originalSecret.id, configPath: "env.ROLLBACK" },
+      { secretId: conflictingSecret.id, configPath: "env.ROLLBACK" },
+    ], { replaceAll: true })).rejects.toThrow();
+
+    const rows = await db.select().from(companySecretBindings)
+      .where(eq(companySecretBindings.targetId, target.targetId));
+    expect(rows).toEqual([before]);
+  });
+
   it("reports reference counts and resolves binding target labels", async () => {
     const companyId = await seedCompany();
     const svc = secretService(db);

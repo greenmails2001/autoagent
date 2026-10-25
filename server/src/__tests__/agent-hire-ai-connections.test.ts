@@ -24,6 +24,7 @@ import { toolAccessService } from "../services/tool-access.js";
 import { waitForPendingRunFailureReports } from "../services/run-failure-report.js";
 import { configureAgentLifecycle } from "../services/agent-lifecycle.js";
 import { ensureModelAiConnectionBinding } from "../services/agent-ai-connection-default.js";
+import { buildCodexExecArgs } from "../../../packages/adapters/codex-local/src/server/codex-args.js";
 
 const captureRunFailure = vi.hoisted(() => vi.fn());
 vi.mock("../sentry.js", async (importOriginal) => ({
@@ -101,9 +102,35 @@ async function poolFixture(f: Awaited<ReturnType<typeof fixture>>, extraMembers:
 
 describe("agent-created hires use managed AI connections", () => {
   it.each([
+    ["Hbc Agent", false], ["N9 DocAI Designer", false],
+    ["Hbc Agent", true], ["N9 DocAI Designer", true],
+  ])("preserves canonical model roundtrips at the DB/CLI boundary for %s (explicit=%s)", async (name, explicit) => {
+    const f = await fixture("openai");
+    await db.insert(principalPermissionGrants).values({ companyId: f.companyId, principalType: "user", principalId: f.userId, permissionKey: "agents:configure" });
+    const runtimeConfig = { retained: true, ...(explicit ? { aiConnection: f.binding } : {}) };
+    await db.update(agents).set({ name, runtimeConfig, adapterConfig: { model: "cx/gpt-6-sol", cwd: home } }).where(eq(agents.id, f.agentId));
+    const original = getServerAdapter(f.adapterType);
+    registerServerAdapter({ ...original, testEnvironment: async () => ({ adapterType: f.adapterType, status: "pass", checks: [], testedAt: new Date().toISOString() }) });
+    const network = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 200 }));
+    try {
+      for (const model of ["runtime/vendor-model", "cx/gpt-6-sol"]) {
+        const response = await request(f.app).patch(`/api/agents/${f.agentId}`).send({ adapterConfig: { model } });
+        expect(response.status, JSON.stringify(response.body)).toBe(200);
+        const [saved] = await db.select().from(agents).where(eq(agents.id, f.agentId));
+        expect(saved.adapterConfig.model).toBe(model);
+        expect(saved.runtimeConfig).toEqual(runtimeConfig);
+        const { args } = buildCodexExecArgs(saved.adapterConfig);
+        expect(args[args.indexOf("--model") + 1]).toBe(model);
+      }
+    } finally {
+      network.mockRestore();
+      unregisterServerAdapter(f.adapterType);
+    }
+  });
+  it.each([
     ["agents", "N9 DocAI Designer", "designer"],
     ["agent-hires", "Cost Review Worker", "engineer"],
-  ])("%s persists and reloads the 9route binding for cx agents regardless of name or role", async (endpoint, name, role) => {
+  ])("%s persists and reloads an explicitly selected 9route binding for cx agents", async (endpoint, name, role) => {
     const f = await fixture("openai");
     const account = await aiConnectionService(db).save(f.companyId, f.userId, {
       provider: "9route", method: "api_key", name: "N9 route", ownership: "personal",
@@ -112,7 +139,7 @@ describe("agent-created hires use managed AI connections", () => {
     const agent = hired(await request(f.app).post(`/api/companies/${f.companyId}/${endpoint}`).send({
       name, role, adapterType: "codex_local",
       adapterConfig: { model: "cx/gpt-6-sol", reasoningEffort: "high" },
-      runtimeConfig: { heartbeat: { enabled: false }, retained: { value: true } },
+      runtimeConfig: { heartbeat: { enabled: false }, retained: { value: true }, aiConnection: { mode: "responsible_user", method: "api_key", provider: "9route" } },
     }));
     expect(agent.runtimeConfig).toMatchObject({
       heartbeat: { enabled: false }, retained: { value: true },
@@ -131,7 +158,7 @@ describe("agent-created hires use managed AI connections", () => {
     } finally { await runtime.cleanup(); }
   });
 
-  it("derives and persists the 9route binding when an existing unbound Codex agent is edited to a cx model", async () => {
+  it("keeps runtime default when an existing unbound Codex agent is edited to a cx model", async () => {
     const f = await fixture("openai");
     await aiConnectionService(db).save(f.companyId, f.userId, {
       provider: "9route", method: "api_key", name: "N9 route", ownership: "personal",
@@ -152,7 +179,7 @@ describe("agent-created hires use managed AI connections", () => {
       expect(response.status, JSON.stringify(response.body)).toBe(200);
       expect(response.body.runtimeConfig).toEqual({
         heartbeat: { enabled: true }, retained: "yes",
-        aiConnection: { mode: "responsible_user", method: "api_key", provider: "9route" },
+        aiConnection: null,
       });
       const [reloaded] = await db.select().from(agents).where(eq(agents.id, f.agentId));
       expect(reloaded.runtimeConfig).toEqual(response.body.runtimeConfig);
@@ -164,7 +191,7 @@ describe("agent-created hires use managed AI connections", () => {
     }
   });
 
-  it("projects the 9route environment when heartbeat encounters a legacy null binding", async () => {
+  it("does not derive a managed provider from a legacy null binding", async () => {
     const f = await fixture("openai");
     const account = await aiConnectionService(db).save(f.companyId, f.userId, {
       provider: "9route", method: "api_key", name: "N9 route", ownership: "personal",
@@ -174,14 +201,57 @@ describe("agent-created hires use managed AI connections", () => {
     const runtimeConfig = ensureModelAiConnectionBinding("codex_local", adapterConfig, {
       heartbeat: { enabled: true }, aiConnection: null,
     });
-    const binding = runtimeConfig.aiConnection as AiConnectionBinding;
-    const runtime = await prepareManagedAiRuntime(db, {
-      companyId: f.companyId, agentId: f.agentId, responsibleUserId: f.userId,
-      adapterType: "codex_local", binding, config: adapterConfig,
-    });
+    expect(runtimeConfig.aiConnection).toBeNull();
+    expect(adapterConfig).not.toHaveProperty("managedAiConnection");
+  });
+
+  it.each(["omit", "clear", "select"])("PATCH persists the %s binding wire state", async (mode) => {
+    const f = await fixture("openai");
+    await db.insert(principalPermissionGrants).values({ companyId: f.companyId, principalType: "user", principalId: f.userId, permissionKey: "agents:configure" });
+    await db.update(agents).set({ adapterConfig: { model: "gpt-6-sol", cwd: home }, runtimeConfig: { retained: true, aiConnection: f.binding } }).where(eq(agents.id, f.agentId));
+    const patch = mode === "omit" ? { adapterConfig: { reasoningEffort: "high" } }
+      : { runtimeConfig: { retained: true, ...(mode === "select" ? { aiConnection: f.binding } : {}) } };
+    const originalAdapter = getServerAdapter(f.adapterType);
+    registerServerAdapter({ ...originalAdapter, testEnvironment: async () => ({ adapterType: f.adapterType, status: "pass", checks: [], testedAt: new Date().toISOString() }) });
+    const network = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 200 }));
+    let response: request.Response;
     try {
-      expect(runtime.attribution).toMatchObject({ connectionId: account.connectionId, provider: "9route" });
-      expect((runtime.config.env as Record<string, string>).N9ROUTE_API_KEY).toBe("fixture-9route-key");
+      response = await request(f.app).patch(`/api/agents/${f.agentId}`).send(patch);
+    } finally {
+      network.mockRestore();
+      unregisterServerAdapter(f.adapterType);
+    }
+    expect(response.status, JSON.stringify(response.body)).toBe(200);
+    const [saved] = await db.select().from(agents).where(eq(agents.id, f.agentId));
+    expect(saved.runtimeConfig).toEqual({ retained: true, ...(mode === "clear" ? {} : { aiConnection: f.binding }) });
+    expect(response.body.runtimeConfig).toEqual(saved.runtimeConfig);
+  });
+
+  it.each(["agents", "agent-hires"])("%s keeps cx runtime default when the parent is unmanaged", async (endpoint) => {
+    const f = await fixture("openai");
+    await db.update(agents).set({ runtimeConfig: {} }).where(eq(agents.id, f.agentId));
+    const agent = hired(await request(f.app).post(`/api/companies/${f.companyId}/${endpoint}`).send({
+      name: "Runtime default", role: "engineer", adapterType: "codex_local", adapterConfig: { model: "cx/gpt-6-sol" },
+    }));
+    expect(agent.runtimeConfig.aiConnection).toBeUndefined();
+    const [saved] = await db.select().from(agents).where(eq(agents.id, agent.id));
+    expect(saved.runtimeConfig.aiConnection).toBeUndefined();
+  });
+
+  it("preserves explicit OpenAI selection for a cx model", async () => {
+    const f = await fixture("openai");
+    await aiConnectionService(db).save(f.companyId, f.userId, { provider: "openai", method: "api_key", name: "Explicit fixture", ownership: "personal", apiKey: "fixture-api-key", allAgents: true, agentIds: [] }, "fixture-api-key");
+    const agent = hired(await request(f.app).post(`/api/companies/${f.companyId}/agents`).send({
+      name: "Explicit OpenAI", role: "engineer", adapterType: "codex_local",
+      adapterConfig: { model: "cx/gpt-6-sol" }, runtimeConfig: { aiConnection: f.binding },
+    }));
+    const [saved] = await db.select().from(agents).where(eq(agents.id, agent.id));
+    expect(saved.runtimeConfig.aiConnection).toEqual(f.binding);
+    const runtime = await prepareManagedAiRuntime(db, { companyId: f.companyId, agentId: agent.id, responsibleUserId: f.userId, adapterType: "codex_local", binding: f.binding, config: { ...agent.adapterConfig, cwd: home } });
+    try {
+      expect(runtime.attribution.provider).toBe("openai");
+      expect((runtime.config.env as Record<string, string>).OPENAI_API_KEY).toBe("fixture-api-key");
+      expect((runtime.config.env as Record<string, string>).N9ROUTE_API_KEY).toBeFalsy();
     } finally { await runtime.cleanup(); }
   });
 

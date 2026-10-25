@@ -7,7 +7,7 @@ import { testEnvironment } from "@paperclipai/adapter-codex-local/server";
 const itWindows = process.platform === "win32" ? it : it.skip;
 const itPosix = process.platform === "win32" ? it.skip : it;
 
-async function runProbeFixture(options: { failCleanup?: boolean; error?: string; managedProvider?: boolean } = {}) {
+async function runProbeFixture(options: { failCleanup?: boolean; error?: string; managedProvider?: boolean; model?: string } = {}) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-probe-result-"));
   const capture = path.join(root, "capture.json");
   const command = path.join(root, "codex");
@@ -32,7 +32,7 @@ console.log(JSON.stringify({type:'turn.completed',usage:{input_tokens:1,output_t
   try {
     const result = await testEnvironment({
       companyId: "company-1", adapterType: "codex_local",
-      config: { engine: "cli", command, cwd: root, ...(options.managedProvider ? { managedAiConnection: { identity: "fixture" }, managedAiRouting: { kind: "openrouter" } } : {}), env: {
+      config: { engine: "cli", command, cwd: root, model: options.model, ...(options.managedProvider ? { managedAiConnection: { identity: "fixture" }, managedAiRouting: { kind: "openrouter" } } : {}), env: {
         ...(options.managedProvider ? { CODEX_HOME: managedHome, PAPERCLIP_AI_PROVIDER_KEY: "gateway-fixture-key" } : {}),
         OPENAI_API_KEY: options.managedProvider ? "" : "fixture-key", PROBE_CAPTURE: capture,
         PROBE_ERROR: options.error ?? "", PATH: `${root}${path.delimiter}${process.env.PATH ?? ""}`,
@@ -47,8 +47,16 @@ console.log(JSON.stringify({type:'turn.completed',usage:{input_tokens:1,output_t
 }
 
 describe("codex_local environment diagnostics", () => {
+  itPosix.each([false, true])("passes canonical model IDs to the actual hello process (managed=%s)", async (managedProvider) => {
+    for (const model of ["cx/gpt-6-sol", "runtime/vendor-model", "cx/gpt-6-sol"]) {
+      const { result, capture } = await runProbeFixture({ model, managedProvider });
+      expect(result.status).toBe("pass");
+      expect(capture.args[capture.args.indexOf("--model") + 1]).toBe(model);
+    }
+  });
   beforeEach(() => {
     vi.stubEnv("OPENAI_API_KEY", "");
+    vi.stubEnv("N9ROUTE_API_KEY", "");
   });
   afterEach(() => {
     vi.unstubAllEnvs();
@@ -147,7 +155,7 @@ describe("codex_local environment diagnostics", () => {
     }
   });
 
-  it("emits codex_openai_api_key_missing when neither env var nor native auth exists", async () => {
+  it("emits codex_provider_api_key_missing when neither env var nor native auth exists", async () => {
     const root = path.join(
       os.tmpdir(),
       `paperclip-codex-noauth-${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -170,7 +178,7 @@ describe("codex_local environment diagnostics", () => {
         },
       });
 
-      expect(result.checks.some((check) => check.code === "codex_openai_api_key_missing")).toBe(true);
+      expect(result.checks.some((check) => check.code === "codex_provider_api_key_missing")).toBe(true);
       expect(result.checks.some((check) => check.code === "codex_native_auth_present")).toBe(false);
     } finally {
       await fs.rm(root, { recursive: true, force: true });
