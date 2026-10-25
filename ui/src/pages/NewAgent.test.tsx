@@ -200,6 +200,10 @@ afterEach(async () => {
   container.remove();
 });
 describe("New agent setup", () => {
+  it("does not request the unverified OpenAI model catalog for runtime-default Codex", async () => {
+    await render("codex_local");
+    expect(api.adapterModels).not.toHaveBeenCalled();
+  });
   it("creates Dot through its independent choice without CLI or model setup, then routes to pairing", async () => {
     settings.getExperimental.mockResolvedValue({ enableNativeRunner: false, enableOpenAiDot: true, enablePublicMcp: true });
     await render("paperclip_runner", "openai_dot");

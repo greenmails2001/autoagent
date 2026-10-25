@@ -9,7 +9,7 @@ import type { Agent, Environment, UserSecretDefinition } from "@paperclipai/shar
 import { getEnvironmentCapabilities } from "@paperclipai/shared";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ToastProvider } from "../context/ToastContext";
-import { AgentConfigForm, AdapterLoginPanel, subtractPersistedOverlay, type AdapterLoginDescriptor } from "./AgentConfigForm";
+import { AgentConfigForm, ModelDropdown, AdapterLoginPanel, subtractPersistedOverlay, type AdapterLoginDescriptor } from "./AgentConfigForm";
 import { AgentLifecycleStatus, useAgentLifecycleStatus } from "./AgentLifecycleStatus";
 import { queryKeys } from "../lib/queryKeys";
 import { defaultCreateValues } from "./agent-config-defaults";
@@ -622,6 +622,77 @@ async function flushUntil(check: () => boolean, timeoutMs = 4000) {
 
 describe("AgentConfigForm environment selector", () => {
 
+  it.each([
+    ["Hbc Agent", false], ["N9 DocAI Designer", false],
+    ["Hbc Agent", true], ["N9 DocAI Designer", true],
+  ])("tests unsaved canonical selections and saves values for %s (explicit=%s)", async (name, explicit) => {
+    const accounts = vi.spyOn(aiConnectionsApi, "list").mockResolvedValue({ currentUserId: "you", canManageConnections: true, connections: [] });
+    try {
+      const aiConnection = { mode: "responsible_user", provider: "openai", method: "api_key" } as const;
+      mockAgentsApi.adapterModels.mockResolvedValue([{ id: "runtime/vendor-model", label: "Friendly label" }]);
+      const result = await renderForm([], { name: String(name), adapterConfig: { model: "cx/gpt-6-sol" },
+        runtimeConfig: explicit ? { aiConnection } : {},
+      }, { showAdapterTestEnvironmentButton: true });
+      roots.push(result.root);
+      await clickByText(result.container, "cx/gpt-6-sol");
+      const search = document.querySelector<HTMLInputElement>('input[placeholder="Search models... (type to create)"]')!;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(search, "runtime/vendor-model");
+        search.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await flushReact();
+      const option = [...document.querySelectorAll<HTMLButtonElement>("button")].find(button =>
+        explicit ? button.textContent === "Friendly label" : button.textContent?.includes("Use manual model"));
+      expect(option).toBeTruthy();
+      await act(async () => option!.click());
+      await runTest(result.container);
+      expect(mockAgentsApi.testEnvironment).toHaveBeenLastCalledWith("company-1", "codex_local", expect.objectContaining({
+        adapterConfig: expect.objectContaining({ model: "runtime/vendor-model" }),
+        ...(explicit ? { aiConnection } : {}),
+      }));
+      await clickByText(result.container, "Save");
+      expect(result.onSave).toHaveBeenCalledWith(expect.objectContaining({ adapterConfig: expect.objectContaining({ model: "runtime/vendor-model" }) }));
+      await clickByText(result.container, explicit ? "Friendly label" : "runtime/vendor-model");
+      const original = document.querySelector<HTMLElement>('span[title="cx/gpt-6-sol"]')!;
+      expect(original).toBeTruthy();
+      await act(async () => original.closest("button")!.click());
+      await runTest(result.container);
+      expect(mockAgentsApi.testEnvironment).toHaveBeenLastCalledWith("company-1", "codex_local", expect.objectContaining({ adapterConfig: expect.objectContaining({ model: "cx/gpt-6-sol" }) }));
+    } finally { accounts.mockRestore(); }
+  });
+
+  it.each(["Hbc Agent", "N9 DocAI Designer"])("keeps custom canonical IDs selectable after unsaved model changes for %s", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    function Harness() {
+      const [value, setValue] = useState("cx/gpt-6-sol");
+      return <ModelDropdown models={[]} value={value} onChange={setValue} open={false}
+        onOpenChange={() => {}} allowDefault required={false} groupByProvider={false} creatable presentation="native" />;
+    }
+    await act(async () => renderFormView(root, createFormQueryClient(), <Harness />));
+    const select = container.querySelector<HTMLSelectElement>('select[aria-label="Model"]')!;
+    await act(async () => { select.value = "__paperclip_custom_model__"; select.dispatchEvent(new Event("change", { bubbles: true })); });
+    const input = container.querySelector<HTMLInputElement>('[aria-label="Model ID"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "runtime/vendor-model");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => { select.value = ""; select.dispatchEvent(new Event("change", { bubbles: true })); });
+    expect([...select.options].map(option => option.value)).toContain("cx/gpt-6-sol");
+    expect([...select.options].map(option => option.value)).toContain("runtime/vendor-model");
+    await act(async () => { select.value = "cx/gpt-6-sol"; select.dispatchEvent(new Event("change", { bubbles: true })); });
+    expect(select.value).toBe("cx/gpt-6-sol");
+  });
+
+  it("does not advertise the OpenAI fallback catalog as runtime-default Codex support", async () => {
+    mockAgentsApi.adapterModels.mockResolvedValue([{ id: "gpt-6.1-sol", label: "GPT 6.1" }]);
+    const result = await renderForm([], { adapterConfig: { model: "cx/gpt-6-sol" } });
+    roots.push(result.root);
+    expect(mockAgentsApi.adapterModels).not.toHaveBeenCalled();
+  });
+
   it("saves runtime default and tests the unsaved cleared provider selection", async () => {
     const accountList = vi.spyOn(aiConnectionsApi, "list").mockResolvedValue({ currentUserId: "you", canManageConnections: true, connections: [] });
     try {
@@ -845,7 +916,7 @@ describe("AgentConfigForm environment selector", () => {
     roots.push(result.root);
 
     expect(result.container.textContent).not.toContain("Environment override");
-    expect(result.container.querySelector("select")).toBeNull();
+    expect(result.container.querySelector('select[aria-label="Environment"]')).toBeNull();
   });
 
   it("renders GPT-6 Astra and its model-specific reasoning efforts", async () => {
@@ -905,8 +976,14 @@ describe("AgentConfigForm environment selector", () => {
     });
     await flushReact();
 
+    const search = document.querySelector<HTMLInputElement>('input[placeholder="Search models... (type to create)"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(search, "gpt-6-astra");
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await flushReact();
     const astraOption = Array.from(document.body.querySelectorAll("button"))
-      .find((button) => button.textContent?.trim() === "gpt-6-astra");
+      .find((button) => button.textContent?.includes("Use manual model"));
     expect(astraOption).not.toBeUndefined();
     await act(async () => {
       astraOption!.dispatchEvent(new MouseEvent("click", { bubbles: true }));

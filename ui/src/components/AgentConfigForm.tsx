@@ -907,6 +907,9 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
     effectiveAiConnection,
   ).data?.provider === "openrouter" ? "openrouter" : runnerProvider;
   const connectionModels = useConnectionModels(selectedCompanyId, isCreate ? undefined : aiConnectionBindingSchema.safeParse(effectiveAiConnection).data, aiRoutingHarness(adapterType, runnerProvider, eff("adapterConfig", "acpxAgent", config.acpxAgent)));
+  // The generic Codex endpoint is an OpenAI/static catalog, not discovery of
+  // this runtime's selected provider. Default/custom is safer than guessed IDs.
+  const runtimeDefaultCodex = adapterType === "codex_local" && !effectiveAiConnection;
   // Fetch adapter models for the effective provider, including unsaved changes.
   const modelQueryKey = selectedCompanyId
     ? queryKeys.agents.adapterModels(selectedCompanyId, adapterType, currentDefaultEnvironmentId || null, modelProvider)
@@ -921,11 +924,11 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
       environmentId: currentDefaultEnvironmentId || null,
       provider: modelProvider,
     }),
-    enabled: Boolean(selectedCompanyId) && !connectionModels,
+    enabled: Boolean(selectedCompanyId) && !connectionModels && !runtimeDefaultCodex,
   });
   const [refreshModelsError, setRefreshModelsError] = useState<string | null>(null);
   const [refreshingModels, setRefreshingModels] = useState(false);
-  const models = connectionModels?.models ?? fetchedModels ?? externalModels ?? [];
+  const models = connectionModels?.models ?? (runtimeDefaultCodex ? [] : fetchedModels ?? externalModels ?? []);
   const modelError = connectionModels ? connectionModels.error : fetchedModelsError;
   const adapterCommandField = "command";
   const {
@@ -1756,6 +1759,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
           {renderAdapterFields("adapter")}
           {isLocal && (<>
               <ModelDropdown
+                key={`${isCreate ? "create" : props.agent.id}:${adapterType}:${JSON.stringify(effectiveAiConnection ?? null)}`}
                 models={models}
                 loadingModels={connectionModels?.isLoading ?? fetchingModels}
                 value={currentModelId}
@@ -1794,7 +1798,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
                       return result.data?.model ?? null;
                     }}
                 onRefreshModels={
-                  connectionModels ? connectionModels.refreshModels : supportsAdapterModelRefresh(adapterType)
+                  connectionModels ? connectionModels.refreshModels : !runtimeDefaultCodex && supportsAdapterModelRefresh(adapterType)
                     ? handleRefreshModels
                     : undefined
                 }
@@ -3772,7 +3776,7 @@ function ExperimentalBadge() {
 }
 
 export function ModelDropdown({
-  models,
+  models: catalogModels,
   value,
   onChange,
   open,
@@ -3815,7 +3819,21 @@ export function ModelDropdown({
   defaultLabel?: string;
   presentation?: "searchable" | "native";
 }) {
+  const [selectedModels, setSelectedModels] = useState<AdapterModel[]>(() => value
+    ? [catalogModels.find(model => model.id === value) ?? { id: value, label: value }]
+    : []);
+  useEffect(() => {
+    if (!value) return;
+    setSelectedModels(previous => previous.some(model => model.id === value) ? previous
+      : [...previous, catalogModels.find(model => model.id === value) ?? { id: value, label: value }]);
+  }, [value, catalogModels]);
+  const models = useMemo(() => [...catalogModels,
+    ...selectedModels.filter(selected => !catalogModels.some(model => model.id === selected.id)),
+  ], [catalogModels, selectedModels]);
   const [modelSearch, setModelSearch] = useState("");
+  useEffect(() => {
+    if (!open) setModelSearch("");
+  }, [open]);
   const [enteringCustomModel, setEnteringCustomModel] = useState(false);
   const [detectingModel, setDetectingModel] = useState(false);
   const selected = models.find((m) => m.id === value);

@@ -24,6 +24,7 @@ import { toolAccessService } from "../services/tool-access.js";
 import { waitForPendingRunFailureReports } from "../services/run-failure-report.js";
 import { configureAgentLifecycle } from "../services/agent-lifecycle.js";
 import { ensureModelAiConnectionBinding } from "../services/agent-ai-connection-default.js";
+import { buildCodexExecArgs } from "../../../packages/adapters/codex-local/src/server/codex-args.js";
 
 const captureRunFailure = vi.hoisted(() => vi.fn());
 vi.mock("../sentry.js", async (importOriginal) => ({
@@ -100,6 +101,32 @@ async function poolFixture(f: Awaited<ReturnType<typeof fixture>>, extraMembers:
 }
 
 describe("agent-created hires use managed AI connections", () => {
+  it.each([
+    ["Hbc Agent", false], ["N9 DocAI Designer", false],
+    ["Hbc Agent", true], ["N9 DocAI Designer", true],
+  ])("preserves canonical model roundtrips at the DB/CLI boundary for %s (explicit=%s)", async (name, explicit) => {
+    const f = await fixture("openai");
+    await db.insert(principalPermissionGrants).values({ companyId: f.companyId, principalType: "user", principalId: f.userId, permissionKey: "agents:configure" });
+    const runtimeConfig = { retained: true, ...(explicit ? { aiConnection: f.binding } : {}) };
+    await db.update(agents).set({ name, runtimeConfig, adapterConfig: { model: "cx/gpt-6-sol", cwd: home } }).where(eq(agents.id, f.agentId));
+    const original = getServerAdapter(f.adapterType);
+    registerServerAdapter({ ...original, testEnvironment: async () => ({ adapterType: f.adapterType, status: "pass", checks: [], testedAt: new Date().toISOString() }) });
+    const network = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 200 }));
+    try {
+      for (const model of ["runtime/vendor-model", "cx/gpt-6-sol"]) {
+        const response = await request(f.app).patch(`/api/agents/${f.agentId}`).send({ adapterConfig: { model } });
+        expect(response.status, JSON.stringify(response.body)).toBe(200);
+        const [saved] = await db.select().from(agents).where(eq(agents.id, f.agentId));
+        expect(saved.adapterConfig.model).toBe(model);
+        expect(saved.runtimeConfig).toEqual(runtimeConfig);
+        const { args } = buildCodexExecArgs(saved.adapterConfig);
+        expect(args[args.indexOf("--model") + 1]).toBe(model);
+      }
+    } finally {
+      network.mockRestore();
+      unregisterServerAdapter(f.adapterType);
+    }
+  });
   it.each([
     ["agents", "N9 DocAI Designer", "designer"],
     ["agent-hires", "Cost Review Worker", "engineer"],
