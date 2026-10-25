@@ -117,19 +117,14 @@ export async function assertManagedAiProjectAuth(
         "-c",
         `
 directory=$1; pattern=$2; shift 2
-while :; do
-  for relative in "$@"; do
-    file="$directory/$relative"
-    if test -f "$file"; then
-      grep -Eq "$pattern" "$file"
-      result=$?
-      if test "$result" -eq 0; then exit 42; fi
-      if test "$result" -ne 1; then exit 43; fi
-    fi
-  done
-  parent=$(dirname "$directory")
-  if test "$parent" = "$directory"; then break; fi
-  directory=$parent
+for relative in "$@"; do
+  file="$directory/$relative"
+  if test -f "$file"; then
+    grep -Eq "$pattern" "$file"
+    result=$?
+    if test "$result" -eq 0; then exit 42; fi
+    if test "$result" -ne 1; then exit 43; fi
+  fi
 done`,
         "ai-auth-check",
         target.remoteCwd,
@@ -151,29 +146,28 @@ done`,
       );
     return;
   }
-  let directory =
-    typeof config.cwd === "string" ? path.resolve(config.cwd) : process.cwd();
-  for (;;) {
-    for (const relative of files) {
-      try {
-        const content = await readFile(path.join(directory, relative), "utf8");
-        if (
-          /apiKeyHelper|ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|CLAUDE_CODE_OAUTH_TOKEN|OPENAI_API_KEY|model_provider\s*=|env_key\s*=|experimental_bearer_token|cli_auth_credentials_store/.test(
-            content,
-          )
-        ) {
-          throw unprocessable(
-            "Project authentication settings conflict with the selected AI connection",
-            { code: "ai_connection_incompatible" },
-          );
-        }
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  // Managed auth belongs to the selected execution workspace. Without an
+  // explicit workspace there is no safe local filesystem scope to inspect;
+  // falling back to the server cwd can mistake service-home config for a
+  // project override.
+  if (typeof config.cwd !== "string" || config.cwd.trim().length === 0) return;
+  const directory = path.resolve(config.cwd);
+  for (const relative of files) {
+    try {
+      const content = await readFile(path.join(directory, relative), "utf8");
+      if (
+        /apiKeyHelper|ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|CLAUDE_CODE_OAUTH_TOKEN|OPENAI_API_KEY|model_provider\s*=|env_key\s*=|experimental_bearer_token|cli_auth_credentials_store/.test(
+          content,
+        )
+      ) {
+        throw unprocessable(
+          "Project authentication settings conflict with the selected AI connection",
+          { code: "ai_connection_incompatible" },
+        );
       }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
-    const parent = path.dirname(directory);
-    if (parent === directory) break;
-    directory = parent;
   }
 }
 
@@ -221,6 +215,7 @@ export async function prepareManagedAiRuntime(
     allowUninstalledPersonal?: boolean;
     allowUninstalledShared?: boolean;
     allowLegacyValidation?: boolean;
+    projectAuthTarget?: AdapterExecutionTarget | null;
     config: Record<string, unknown>;
   },
 ) {
@@ -245,7 +240,7 @@ export async function prepareManagedAiRuntime(
       );
   }
   const harness = aiRoutingHarness(input.adapterType, input.config.provider, input.config.acpxAgent);
-  await assertManagedAiProjectAuth(input.config, harness === "claude_local" ? "anthropic" : harness === "codex_local" ? "openai" : input.binding.provider);
+  await assertManagedAiProjectAuth(input.config, harness === "claude_local" ? "anthropic" : harness === "codex_local" ? "openai" : input.binding.provider, input.projectAuthTarget);
   const service = aiConnectionService(db);
   let selection = await service.select({
     ...input,

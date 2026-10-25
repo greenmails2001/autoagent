@@ -122,6 +122,19 @@ describePostgres("heartbeat execution configuration through adapter dispatch", (
     expect(JSON.stringify(events)).not.toContain(f.credential);
   });
 
+  it("checks managed project auth against the realized heartbeat workspace", async () => {
+    const f = await seed(true);
+    const check = vi.spyOn(aiRuntime, "assertManagedAiProjectAuth");
+    const { finished, input } = await execute(f);
+    expect(finished.status, finished.error ?? undefined).toBe("succeeded");
+    expect(input).toBeDefined();
+    expect(check).toHaveBeenCalledWith(
+      expect.objectContaining({ cwd: expect.any(String) }),
+      "openai",
+      expect.anything(),
+    );
+  });
+
   it("cleans acquired credentials and redacts diagnostics when later skill preparation fails", async () => {
     const f = await seed(true);
     skillFailures.set(f.companyId, `Invalid fixture skill configuration: ${f.credential}`);
