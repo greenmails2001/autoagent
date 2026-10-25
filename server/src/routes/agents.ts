@@ -24,7 +24,7 @@ import {
 } from "@paperclipai/shared";
 import { toolConnections } from "@paperclipai/db";
 import { aiConnectionService } from "../services/ai-connections.js";
-import { defaultAiConnectionForHire, ensureModelAiConnectionBinding } from "../services/agent-ai-connection-default.js";
+import { defaultAiConnectionForHire, ensureModelAiConnectionBinding, resolveUpdatedAiConnectionBinding } from "../services/agent-ai-connection-default.js";
 import { assertAiConnectionCreateAccess, canInstallSharedAiConnectionForNewAgent, responsibleUserForAiRequest } from "./ai-connections.js";
 import { isAiConnectionCompatible } from "@paperclipai/shared";
 import { applyConnectorSkills, resolveConnectorAssignments, annotateConnectorSkills, isConnectorSkill } from "../services/connector-runtime.js";
@@ -5326,7 +5326,6 @@ export function agentRoutes(
         adapterConfig: patchData.adapterConfig,
       });
     }
-    if (existing.runtimeConfig.aiConnection && requestedRuntimeConfig && !requestedRuntimeConfig.aiConnection) requestedRuntimeConfig.aiConnection = existing.runtimeConfig.aiConnection;
     const runtimeConfigBeforeModelBinding = requestedRuntimeConfig ?? existing.runtimeConfig;
     const runtimeConfigWithModelBinding = ensureModelAiConnectionBinding(
       requestedAdapterType,
@@ -5334,7 +5333,7 @@ export function agentRoutes(
       runtimeConfigBeforeModelBinding,
     );
     if (runtimeConfigWithModelBinding !== runtimeConfigBeforeModelBinding) requestedRuntimeConfig = runtimeConfigWithModelBinding;
-    const nextAiBinding = aiRuntimeConnectionBindingSchema.safeParse(requestedRuntimeConfig?.aiConnection ?? existing.runtimeConfig.aiConnection).data;
+    const nextAiBinding = resolveUpdatedAiConnectionBinding(requestedRuntimeConfig, existing.runtimeConfig.aiConnection);
     if (nextAiBinding) {
       await assertCanUpdateAgent(req, existing);
       const changed = JSON.stringify(nextAiBinding) !== JSON.stringify(existing.runtimeConfig.aiConnection);

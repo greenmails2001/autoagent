@@ -17,11 +17,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 import { runInNewContext } from "node:vm";
 
 import cliEsbuildConfig from "../cli/esbuild.config.mjs";
 import { bundledCliNpmDependencies } from "./cli-bundled-npm-dependencies.mjs";
 import {
+  collectWorkspacePackageVersions,
   createBundledInstallManifest,
   configureBundledProviderOverrides,
   materializePublishManifest,
@@ -450,17 +452,66 @@ test("bundled package staging materializes publishConfig entrypoints", () => {
 });
 
 test("bundled package staging materializes workspace dependency versions", () => {
+  const workspaceVersions = collectWorkspacePackageVersions(fileURLToPath(new URL("..", import.meta.url)));
   const staged = materializePublishManifest({
     name: "@paperclipai/example",
-    version: "2026.723.0",
-    dependencies: { exact: "workspace:*", caret: "workspace:^", tilde: "workspace:~" },
-  });
+    version: "0.3.1",
+    dependencies: {
+      "@paperclipai/plugin-sdk": "workspace:*",
+      caret: "workspace:^",
+      tilde: "workspace:~",
+    },
+  }, new Map([
+    ...workspaceVersions,
+    ["caret", "2.4.0"],
+    ["tilde", "3.5.0"],
+  ]));
 
   assert.deepEqual(staged.dependencies, {
-    exact: "2026.723.0",
-    caret: "^2026.723.0",
-    tilde: "~2026.723.0",
+    "@paperclipai/plugin-sdk": "1.0.0",
+    caret: "^2.4.0",
+    tilde: "~3.5.0",
   });
+});
+
+test("materialized cross-version workspace packages install from clean tarballs", t => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "paperclip-workspace-version-")));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const sdkDir = join(root, "sdk");
+  const serverDir = join(root, "server");
+  const installDir = join(root, "install");
+  mkdirSync(sdkDir);
+  mkdirSync(serverDir);
+  mkdirSync(installDir);
+  writeFileSync(join(sdkDir, "index.js"), "export const version = '1.0.0';\n");
+  writeFileSync(join(sdkDir, "package.json"), JSON.stringify({
+    name: "@paperclipai/plugin-sdk",
+    version: "1.0.0",
+    type: "module",
+    exports: "./index.js",
+  }));
+  writeFileSync(join(serverDir, "index.js"), "export { version } from '@paperclipai/plugin-sdk';\n");
+  writeFileSync(join(serverDir, "package.json"), JSON.stringify(materializePublishManifest({
+    name: "@paperclipai/server",
+    version: "0.3.1",
+    type: "module",
+    exports: "./index.js",
+    dependencies: { "@paperclipai/plugin-sdk": "workspace:*" },
+  }, new Map([["@paperclipai/plugin-sdk", "1.0.0"]]))));
+  const pack = directory => execFileSync("npm", ["pack", directory, "--ignore-scripts", "--pack-destination", root], {
+    cwd: root,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+  }).trim();
+  const sdkTarball = pack(sdkDir);
+  const serverTarball = pack(serverDir);
+  writeFileSync(join(installDir, "package.json"), JSON.stringify({ private: true }));
+  execFileSync("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund",
+    join(root, sdkTarball), join(root, serverTarball)], { cwd: installDir, stdio: "pipe" });
+  const installedServer = JSON.parse(readFileSync(join(installDir, "node_modules/@paperclipai/server/package.json"), "utf8"));
+  const installedSdk = JSON.parse(readFileSync(join(installDir, "node_modules/@paperclipai/plugin-sdk/package.json"), "utf8"));
+  assert.equal(installedServer.dependencies["@paperclipai/plugin-sdk"], "1.0.0");
+  assert.equal(installedSdk.version, "1.0.0");
 });
 
 test("bundled package staging installs only dependencies included in the tarball", () => {

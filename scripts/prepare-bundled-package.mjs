@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const nativeTargets = ["linux-x64", "darwin-arm64", "darwin-x64"];
 
-export function materializePublishManifest(pkg) {
+export function materializePublishManifest(pkg, workspaceVersions = new Map()) {
   const publishConfig = pkg.publishConfig ?? {};
   const publishManifest = { ...pkg };
 
@@ -24,13 +24,40 @@ export function materializePublishManifest(pkg) {
         if (typeof specifier !== "string" || !specifier.startsWith("workspace:")) return [name, specifier];
         const range = specifier.slice("workspace:".length);
         const prefix = range === "^" || range === "~" ? range : "";
-        return [name, `${prefix}${pkg.version}`];
+        const version = workspaceVersions.get(name) ?? pkg.version;
+        return [name, prefix ? `${prefix}${version}` : range === "*" ? version : range];
       }),
     );
   }
 
   delete publishManifest.publishConfig;
   return publishManifest;
+}
+
+export function collectWorkspacePackageVersions(sourceRoot) {
+  const versions = new Map();
+  const packageDirectories = ["server", "ui", "cli"].map(entry => resolve(sourceRoot, entry));
+  const appendChildren = directory => {
+    if (!existsSync(directory)) return;
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      if (entry.isDirectory()) packageDirectories.push(resolve(directory, entry.name));
+    }
+  };
+  appendChildren(resolve(sourceRoot, "packages"));
+  appendChildren(resolve(sourceRoot, "packages/adapters"));
+  appendChildren(resolve(sourceRoot, "packages/plugins"));
+  appendChildren(resolve(sourceRoot, "packages/plugins/examples"));
+
+  for (const directory of packageDirectories) {
+    const manifestPath = resolve(directory, "package.json");
+    if (existsSync(manifestPath)) {
+      const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+      if (typeof manifest.name === "string" && typeof manifest.version === "string") {
+        versions.set(manifest.name, manifest.version);
+      }
+    }
+  }
+  return versions;
 }
 
 export function createBundledInstallManifest(publishManifest, bundledDependencies) {
@@ -394,7 +421,7 @@ export function prepareBundledPackage(sourceDir, destinationDir, { sourceRoot = 
   }
 
   const deployedPackagePath = resolve(destinationDir, "package.json");
-  const publishManifest = materializePublishManifest(sourcePackage);
+  const publishManifest = materializePublishManifest(sourcePackage, collectWorkspacePackageVersions(sourceRoot));
   const rootPackage = JSON.parse(readFileSync(resolve(sourceRoot, "package.json"), "utf8"));
   const profileData = bundledDependencies.includes("@agentclientprotocol/codex-acp")
     ? JSON.parse(readFileSync(resolve(sourceRoot, "packages/paperclip-runner/acpx-profiles.json"), "utf8")) : undefined;
