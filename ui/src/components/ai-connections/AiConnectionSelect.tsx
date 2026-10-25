@@ -41,7 +41,8 @@ export function AiConnectionSelect({
   onReconnect,
   onChange,
   adapterType,
-}: AiConnectionPickerProps & { adapterType: string }) {
+  onClear,
+}: AiConnectionPickerProps & { adapterType: string; onClear?: () => void }) {
   const selectId = useId();
   const personal = personalAiDefault(connections, requirement, currentUserId);
   const selected =
@@ -86,6 +87,7 @@ export function AiConnectionSelect({
     selected && !compatible.some((c) => c.id === selected.id);
   const change = (id: string) => {
     if (id === "connect") return onConnect();
+    if (id === "runtime_default") return onClear?.();
     if (id === "responsible_user")
       return onChange({
         provider: requirement.provider,
@@ -130,6 +132,7 @@ export function AiConnectionSelect({
           </SelectValue>
         </SelectTrigger>
         <SelectContent>
+          {onClear && <SelectItem value="runtime_default">Runtime default</SelectItem>}
           {incompatible && selected && (
             <SelectItem value={selected.id} disabled>
               <ConnectionLabel connection={selected} label={`${selected.name} · Incompatible`} />

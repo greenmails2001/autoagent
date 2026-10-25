@@ -2,6 +2,17 @@
 
 Migration `0340_n9route_agent_binding.sql` normalizes missing, JSON null, and malformed `runtime_config.aiConnection` values. Those original states cannot be reconstructed from the normalized row, so deployment must capture a scoped snapshot before applying migrations.
 
+## Two-mode compatibility after 0340
+
+The current runtime contract has two explicit modes:
+
+- absence of `runtime_config.aiConnection` means **Runtime default** and leaves provider, base URL, and credentials to the adapter/runtime;
+- a valid binding object means **Specific provider** and projects only that selected connection into ACP/CLI execution.
+
+Model names, including `cx/*`, do not select a provider. Migration `0340` predates this contract and converted every eligible missing/null/malformed value into an explicit responsible-user 9route binding. Those rows remain valid **Specific provider** configurations after the source change; they must not be silently reclassified as Runtime default.
+
+If an operator decides that any row changed by `0340` should return to Runtime default, restore only that row's captured pre-deploy value with the scoped snapshot tooling below. Provenance cannot be inferred safely from the normalized value because an identical binding may have been selected explicitly after migration. No production restore or follow-up migration is authorized without Data/DB review of the captured IDs and intended disposition.
+
 ## Pre-deploy capture
 
 Use `captureN9routeAgentBindingSnapshot` from `packages/db/src/n9route-agent-binding-rollback.ts` against the target database before the service upgrade. Store the returned JSON beside the encrypted database backup with mode `0600`. The artifact contains only `agents.id`, whether the key existed, and the original `aiConnection` JSON value; it contains no credential material.

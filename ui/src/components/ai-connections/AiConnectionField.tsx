@@ -39,6 +39,7 @@ export function AiConnectionField({
   model,
   value,
   onChange,
+  onClear,
   environmentId,
   legacy = false,
   readOnly = false,
@@ -52,6 +53,7 @@ export function AiConnectionField({
   model?: string;
   value?: AiRuntimeConnectionBinding;
   onChange: (binding: AiRuntimeConnectionBinding) => void;
+  onClear?: () => void;
   environmentId?: string;
   legacy?: boolean;
   readOnly?: boolean;
@@ -162,9 +164,8 @@ export function AiConnectionField({
         readOnly={readOnly}
         loading={accounts.isPending}
         error={accounts.error?.message}
-        onChange={(binding) =>
-          changeBinding(aiConnectionBindingSchema.parse(binding))
-        }
+        onChange={(binding) => changeBinding(aiConnectionBindingSchema.parse(binding))}
+        onClear={onClear}
         onConnect={() => openConnection()}
         onReconnect={(!value || value.mode === "responsible_user") && personalDefault && personalDefault.status !== "connected" ? () => openConnection(personalDefault) : undefined}
         onRetry={() => void accounts.refetch()}
