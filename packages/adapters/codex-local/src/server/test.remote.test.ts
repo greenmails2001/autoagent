@@ -18,6 +18,10 @@ const {
   capturedHomeAssetAuthJson,
   capturedHomeAssetConfigToml,
   capturedProbeConfigToml,
+  providerConfigFailure,
+  remoteRuntimeFailure,
+  capturedProviderConfigHome,
+  capturedRuntimeWorkspaceLocalDir,
 } = vi.hoisted(() => {
   const restoreWorkspace = vi.fn(async () => {});
   // Records the files staged in the uploaded "home" asset at call time, before
@@ -29,11 +33,19 @@ const {
   const capturedHomeAssetAuthJson: { value: string | null } = { value: null };
   const capturedHomeAssetConfigToml: { value: string | null } = { value: null };
   const capturedProbeConfigToml: { value: string | null } = { value: null };
+  const providerConfigFailure: { value: Error | null } = { value: null };
+  const remoteRuntimeFailure: { value: Error | null } = { value: null };
+  const capturedProviderConfigHome: { value: string | null } = { value: null };
+  const capturedRuntimeWorkspaceLocalDir: { value: string | null } = { value: null };
   return {
     capturedHomeAssetFiles,
     capturedHomeAssetAuthJson,
     capturedHomeAssetConfigToml,
     capturedProbeConfigToml,
+    providerConfigFailure,
+    remoteRuntimeFailure,
+    capturedProviderConfigHome,
+    capturedRuntimeWorkspaceLocalDir,
     ensureAdapterExecutionTargetDirectory: vi.fn(async () => {}),
     ensureAdapterExecutionTargetCommandResolvable: vi.fn(async () => {}),
     maybeRunSandboxInstallCommand: vi.fn(async () => null),
@@ -66,6 +78,7 @@ const {
       return fallbackCwd;
     }),
     prepareAdapterExecutionTargetRuntime: vi.fn(async (input: { assets?: Array<{ key: string; localDir: string }> }) => {
+      capturedRuntimeWorkspaceLocalDir.value = (input as { workspaceLocalDir?: string }).workspaceLocalDir ?? null;
       const homeAsset = input?.assets?.find((asset) => asset.key === "home");
       if (homeAsset) {
         capturedHomeAssetFiles.value = (await fs.readdir(homeAsset.localDir)).sort();
@@ -76,6 +89,7 @@ const {
           .readFile(`${homeAsset.localDir}/config.toml`, "utf8")
           .catch(() => null);
       }
+      if (remoteRuntimeFailure.value) throw remoteRuntimeFailure.value;
       return {
         target: null,
         workspaceRemoteDir: "/remote/workspace/.paperclip-runtime/runs/test/workspace",
@@ -122,6 +136,18 @@ vi.mock("./codex-home.js", async () => {
   };
 });
 
+vi.mock("./runtime-config.js", async () => {
+  const actual = await vi.importActual<typeof import("./runtime-config.js")>("./runtime-config.js");
+  return {
+    ...actual,
+    prepareCodexRuntimeConfig: vi.fn(async (input: { env: Record<string, string>; codexHome: string | null }) => {
+      capturedProviderConfigHome.value = input.codexHome ?? null;
+      if (providerConfigFailure.value) throw providerConfigFailure.value;
+      return actual.prepareCodexRuntimeConfig(input);
+    }),
+  };
+});
+
 import { testEnvironment } from "./test.js";
 
 describe("codex remote environment diagnostics", () => {
@@ -151,6 +177,10 @@ describe("codex remote environment diagnostics", () => {
     capturedHomeAssetAuthJson.value = null;
     capturedHomeAssetConfigToml.value = null;
     capturedProbeConfigToml.value = null;
+    providerConfigFailure.value = null;
+    remoteRuntimeFailure.value = null;
+    capturedProviderConfigHome.value = null;
+    capturedRuntimeWorkspaceLocalDir.value = null;
     while (scratchDirs.length > 0) {
       const dir = scratchDirs.pop();
       if (dir) await fs.rm(dir, { recursive: true, force: true }).catch(() => undefined);
@@ -309,6 +339,69 @@ describe("codex remote environment diagnostics", () => {
     expect(capturedProbeConfigToml.value).toContain('model_provider = "9router"');
     expect(capturedProbeConfigToml.value).toContain("[model_providers.9router]");
     expect(await fs.readFile(path.join(managedHome, "config.toml"), "utf8")).toBe('model = "gpt-5"\n');
+  });
+
+  it("removes the isolated local probe home when provider materialization fails", async () => {
+    const managedHome = await prepareManagedCodexHome();
+    const originalConfig = await fs.readFile(path.join(managedHome, "config.toml"), "utf8");
+    const originalAuth = await fs.readFile(path.join(managedHome, "auth.json"), "utf8");
+    const failure = new Error("provider materialization failed");
+    providerConfigFailure.value = failure;
+
+    await expect(testEnvironment({
+      companyId: "company-1",
+      adapterType: "codex_local",
+      config: {
+        engine: "cli",
+        command: "codex",
+        managedAiConnection: { identity: "fixture" },
+        env: { CODEX_HOME: managedHome, N9ROUTE_API_KEY: "fixture-key" },
+      },
+      executionTarget: null,
+    })).rejects.toBe(failure);
+
+    expect(capturedProviderConfigHome.value).toContain(`${os.tmpdir()}/paperclip-codex-probe-home-`);
+    expect(await fs.stat(capturedProviderConfigHome.value!).catch(() => null)).toBeNull();
+    expect(await fs.readFile(path.join(managedHome, "config.toml"), "utf8")).toBe(originalConfig);
+    expect(await fs.readFile(path.join(managedHome, "auth.json"), "utf8")).toBe(originalAuth);
+  });
+
+  it("removes remote probe and staging homes when runtime preparation fails", async () => {
+    const managedHome = await prepareManagedCodexHome();
+    const originalConfig = await fs.readFile(path.join(managedHome, "config.toml"), "utf8");
+    const originalAuth = await fs.readFile(path.join(managedHome, "auth.json"), "utf8");
+    const failure = new Error("remote runtime preparation failed");
+    remoteRuntimeFailure.value = failure;
+
+    await expect(testEnvironment({
+      companyId: "company-1",
+      adapterType: "codex_local",
+      config: {
+        engine: "cli",
+        command: "codex",
+        managedAiConnection: { identity: "fixture" },
+        env: {
+          CODEX_HOME: managedHome,
+          N9ROUTE_API_KEY: "fixture-key",
+          PAPERCLIP_CODEX_PROVIDERS: JSON.stringify({
+            providers: { "9router": { base_url: "https://route.proj.vn/v1", env_key: "N9ROUTE_API_KEY" } },
+            model_provider: "9router",
+          }),
+        },
+      },
+      executionTarget: {
+        kind: "remote",
+        transport: "ssh",
+        remoteCwd: "/remote/workspace",
+        spec: { host: "127.0.0.1", port: 22, username: "agent", privateKey: "PRIVATE KEY", knownHosts: "KNOWN HOSTS", remoteCwd: "/remote/workspace", remoteWorkspacePath: "/remote/workspace", strictHostKeyChecking: false },
+      },
+      environmentName: "QA SSH",
+    })).rejects.toBe(failure);
+
+    expect(await fs.stat(capturedProviderConfigHome.value!).catch(() => null)).toBeNull();
+    expect(await fs.stat(capturedRuntimeWorkspaceLocalDir.value!).catch(() => null)).toBeNull();
+    expect(await fs.readFile(path.join(managedHome, "config.toml"), "utf8")).toBe(originalConfig);
+    expect(await fs.readFile(path.join(managedHome, "auth.json"), "utf8")).toBe(originalAuth);
   });
 
   it("avoids /tmp CODEX_HOME for remote API-key hello probes", async () => {

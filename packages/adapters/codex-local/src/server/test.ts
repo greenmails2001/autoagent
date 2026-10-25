@@ -111,6 +111,7 @@ async function prepareCodexHelloProbe(input: {
   };
 
   if (!input.probeApiKey && (input.targetIsRemote || input.managedAiConnection)) {
+    try {
     // Prepare the exact home a real run would use, mirroring execute.ts: vend
     // the shared credential's freshest same-identity cached copy, then seed the
     // effective home — the company default when no CODEX_HOME is configured, a
@@ -232,14 +233,18 @@ async function prepareCodexHelloProbe(input: {
       ],
     });
 
-    return {
-      command: input.command,
-      args: input.args,
-      env: preparedRuntime.assetDirs.home
-        ? { ...input.env, CODEX_HOME: preparedRuntime.assetDirs.home }
-        : { ...input.env },
-      cleanup,
-    };
+      return {
+        command: input.command,
+        args: input.args,
+        env: preparedRuntime.assetDirs.home
+          ? { ...input.env, CODEX_HOME: preparedRuntime.assetDirs.home }
+          : { ...input.env },
+        cleanup,
+      };
+    } catch (error) {
+      await cleanup();
+      throw error;
+    }
   }
 
   if (input.probeApiKey) {
