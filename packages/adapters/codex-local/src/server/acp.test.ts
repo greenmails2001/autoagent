@@ -150,6 +150,7 @@ class FakeRuntime {
     mode: "persistent" | "oneshot";
     cwd?: string;
     resumeSessionId?: string;
+    sessionOptions?: { env?: Record<string, string> };
   }> = [];
   startInputs: Array<{ handle: FakeRuntimeHandle; text: string; requestId: string; timeoutMs?: number }> = [];
   closeInputs: Array<{ handle: FakeRuntimeHandle; reason: string; discardPersistentState?: boolean }> = [];
@@ -170,6 +171,7 @@ class FakeRuntime {
     mode: "persistent" | "oneshot";
     cwd?: string;
     resumeSessionId?: string;
+    sessionOptions?: { env?: Record<string, string> };
   }): Promise<FakeRuntimeHandle> {
     this.ensureInputs.push(input);
     this.ensureCount += 1;
@@ -290,6 +292,67 @@ function buildContext(root: string, overrides: Partial<AdapterExecutionContext> 
 }
 
 describe("codex_local ACP lane", () => {
+  it("forwards only selected Runtime default provider env at the ACP boundary and refreshes rotated sessions", async () => {
+    const root = await makeTempRoot("paperclip-codex-acp-provider-env-");
+    const managedHome = path.join(process.env.PAPERCLIP_HOME!, "instances", "test", "companies", "company-1", "agents", "agent-1", "codex-home");
+    const runtimes: FakeRuntime[] = [];
+    vi.stubEnv("PAPERCLIP_CODEX_PROVIDERS", JSON.stringify({
+      model_provider: "gateway", providers: {
+        gateway: { env_key: "CUSTOM_GATEWAY_KEY", wire_api: "responses" },
+        other: { env_key: "UNRELATED_PROVIDER_KEY" },
+      },
+    }));
+    vi.stubEnv("CUSTOM_GATEWAY_KEY", "synthetic-first");
+    vi.stubEnv("UNRELATED_PROVIDER_KEY", "synthetic-unrelated");
+    const execute = createCodexAcpExecutor({ createRuntime: (options: FakeRuntimeOptions) => {
+      const runtime = new FakeRuntime(options); runtimes.push(runtime); return runtime as never;
+    } });
+    const context = buildContext(root, { config: {
+      cwd: root, stateDir: path.join(root, "state"), env: { CODEX_HOME: managedHome },
+      promptTemplate: "Return hello.",
+    } });
+    try {
+      expect((await execute(context)).exitCode).toBe(0);
+      expect(runtimes[0].ensureInputs[0].sessionOptions?.env).toMatchObject({ CUSTOM_GATEWAY_KEY: "synthetic-first" });
+      expect(runtimes[0].ensureInputs[0].sessionOptions?.env).not.toHaveProperty("UNRELATED_PROVIDER_KEY");
+      expect(runtimes[0].options.inheritProcessEnv).toBe(false);
+      expect(runtimes[0].setConfigInputs).not.toContainEqual(expect.objectContaining({ key: "model" }));
+      vi.stubEnv("CUSTOM_GATEWAY_KEY", "synthetic-rotated");
+      expect((await execute({ ...context, runId: "run-2" })).exitCode).toBe(0);
+      expect(runtimes).toHaveLength(2);
+      expect(runtimes[1].ensureInputs[0].sessionOptions?.env).toMatchObject({ CUSTOM_GATEWAY_KEY: "synthetic-rotated" });
+      expect(runtimes[1].ensureInputs[0].sessionKey).not.toBe(runtimes[0].ensureInputs[0].sessionKey);
+    } finally { vi.unstubAllEnvs(); }
+  });
+
+  it.each(["explicit-empty", "managed-binding", "external-home"])(
+    "does not inherit runtime provider credentials across %s boundary", async (boundary) => {
+      const root = await makeTempRoot("paperclip-codex-acp-provider-isolation-");
+      const home = boundary === "external-home" ? path.join(root, "external-home")
+        : path.join(process.env.PAPERCLIP_HOME!, "instances", "test", "companies", "company-1", "agents", "agent-1", "codex-home");
+      vi.stubEnv("PAPERCLIP_CODEX_PROVIDERS", JSON.stringify({
+        model_provider: "gateway", providers: { gateway: { env_key: "CUSTOM_GATEWAY_KEY" } },
+      }));
+      vi.stubEnv("CUSTOM_GATEWAY_KEY", "synthetic-host");
+      let runtime: FakeRuntime | undefined;
+      const execute = createCodexAcpExecutor({ createRuntime: options => {
+        runtime = new FakeRuntime(options); return runtime as never;
+      } });
+      try {
+        const result = await execute(buildContext(root, { config: {
+          cwd: root, stateDir: path.join(root, "state"), model: "custom/canonical-id",
+          ...(boundary === "managed-binding" ? { managedAiConnection: true } : {}),
+          env: { CODEX_HOME: home, ...(boundary === "explicit-empty" ? { CUSTOM_GATEWAY_KEY: "" } : {}) },
+        } }));
+        expect(result.exitCode).toBe(0);
+        const env = runtime!.ensureInputs[0].sessionOptions?.env;
+        if (boundary === "explicit-empty") expect(env?.CUSTOM_GATEWAY_KEY).toBe("");
+        else expect(env).not.toHaveProperty("CUSTOM_GATEWAY_KEY");
+        expect(result.resultJson?.requestedModel).toBe("custom/canonical-id");
+      } finally { vi.unstubAllEnvs(); }
+    },
+  );
+
   it("merges configured Codex providers into a managed home before local ACP runtime creation", async () => {
     const root = await makeTempRoot("paperclip-codex-acp-provider-");
     const managedHome = path.join(process.env.PAPERCLIP_HOME!, "instances", process.env.PAPERCLIP_INSTANCE_ID!, "companies", "company-1", "agents", "agent-1", "codex-home");
