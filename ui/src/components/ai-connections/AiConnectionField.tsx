@@ -110,7 +110,7 @@ export function AiConnectionField({
     ?? (provider && providerUsesApiKeyOnly(provider) ? "api_key" : "subscription");
   const compatiblePools = agentId ? accounts.data?.pools?.filter(pool => pool.enabled && pool.members.some(member => isAiConnectionCompatible(member.binding, routerAdapterType ?? adapterType, member.profile.model, member.profile.provider, member.profile.acpxAgent))) ?? [] : [];
   if (!provider) return null;
-  if (legacy && !value && !adopting)
+  if (legacy && !value && !adopting && !onClear)
     return (
       <AiConnectionLegacyNotice
         readOnly={readOnly}

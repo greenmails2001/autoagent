@@ -621,6 +621,31 @@ async function flushUntil(check: () => boolean, timeoutMs = 4000) {
 }
 
 describe("AgentConfigForm environment selector", () => {
+
+  it("saves runtime default and tests the unsaved cleared provider selection", async () => {
+    const accountList = vi.spyOn(aiConnectionsApi, "list").mockResolvedValue({ currentUserId: "you", canManageConnections: true, connections: [] });
+    try {
+      const result = await renderForm([], {
+        adapterConfig: { model: "cx/gpt-6-sol" },
+        runtimeConfig: { retained: true, aiConnection: { mode: "responsible_user", provider: "9route", method: "api_key" } },
+      }, { showAdapterTestEnvironmentButton: true });
+      roots.push(result.root);
+      await act(async () => {
+        result.container.querySelector('[aria-label="Connection"]')!
+          .dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+      });
+      await flushReact();
+      const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(element => element.textContent === "Runtime default");
+      expect(option).toBeTruthy();
+      await act(async () => option!.click());
+      await flushReact();
+      expect(result.container.querySelector('[aria-label="Connection"]')?.textContent).toContain("Runtime default");
+      await runTest(result.container);
+      expect(mockAgentsApi.testEnvironment).toHaveBeenLastCalledWith("company-1", "codex_local", expect.objectContaining({ aiConnection: undefined }));
+      await clickByText(result.container, "Save");
+      expect(result.onSave).toHaveBeenCalledWith(expect.objectContaining({ runtimeConfig: { retained: true } }));
+    } finally { accountList.mockRestore(); }
+  });
   let roots: Root[] = [];
 
   beforeEach(() => {

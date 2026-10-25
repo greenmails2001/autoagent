@@ -113,7 +113,7 @@ export function AiConnectionSelect({
         value={
           value?.mode === "responsible_user"
             ? "responsible_user"
-            : (value?.connectionId ?? "")
+            : (value?.connectionId ?? (onClear ? "runtime_default" : ""))
         }
         onValueChange={change}
         disabled={readOnly || loading || Boolean(error)}
@@ -128,7 +128,7 @@ export function AiConnectionSelect({
               ? <ConnectionLabel connection={selected} label={value?.mode === "responsible_user" ? "Responsible user’s default" : undefined} />
               : value?.mode === "responsible_user"
                 ? "Responsible user’s default"
-                : value ? "Unavailable connection" : undefined}
+                : value ? "Unavailable connection" : onClear ? "Runtime default" : undefined}
           </SelectValue>
         </SelectTrigger>
         <SelectContent>
