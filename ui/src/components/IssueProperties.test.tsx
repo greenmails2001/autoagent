@@ -2276,6 +2276,7 @@ describe("IssueProperties", () => {
         title: null,
         status: "active",
         adapterType: "codex_local",
+        runtimeConfig: { aiConnection: { mode: "responsible_user", provider: "9route", method: "api_key" } },
         icon: null,
       },
     ]);
@@ -2325,6 +2326,27 @@ describe("IssueProperties", () => {
     });
 
     act(() => root.unmount());
+  });
+
+  it("keeps the canonical task override without fetching a runtime-default Codex catalog", async () => {
+    mockAgentsApi.adapterModels.mockClear();
+    mockAgentsApi.list.mockResolvedValue([{ id: "agent-1", name: "DocAI", role: "engineer", status: "active", adapterType: "codex_local", adapterConfig: { model: "vendor/canonical" }, runtimeConfig: {} }]);
+    const onUpdate = vi.fn();
+    const root = renderProperties(container, { issue: createIssue({ assigneeAgentId: "agent-1", assigneeAdapterOverrides: { adapterConfig: { model: "custom/exact" } } }), childIssues: [], onUpdate });
+    try {
+      await flush(); await flush();
+      expect(container.textContent).toContain("custom/exact");
+      expect(mockAgentsApi.adapterModels).not.toHaveBeenCalled();
+      const input = container.querySelector<HTMLInputElement>('input[aria-label="Custom model ID"]');
+      expect(input).not.toBeNull();
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "vendor/exact-model");
+        input!.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      expect(onUpdate).not.toHaveBeenCalled();
+      await act(async () => { input!.form!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+      expect(onUpdate).toHaveBeenCalledWith({ assigneeAdapterOverrides: { adapterConfig: { model: "vendor/exact-model" } } });
+    } finally { act(() => root.unmount()); }
   });
 
   it("keeps Astra-only task efforts when the task inherits the agent model", async () => {

@@ -223,40 +223,29 @@ describe("composer assignee picker", () => {
     }
   });
 
-  it("offers the Codex CLI catalog instead of unrelated OpenAI API models", async () => {
-    vi.spyOn(agentsApi, "adapterModels").mockResolvedValueOnce([
-      { id: "gpt-6-sol", label: "GPT-6 Sol" },
-      { id: "gpt-5.5", label: "GPT-5.5" },
+  it("does not advertise an unverified catalog for runtime-default Codex", async () => {
+    const loadModels = vi.spyOn(agentsApi, "adapterModels").mockResolvedValueOnce([
+      { id: "gpt-6.1-sol", label: "Unverified model" },
     ]);
     render(vi.fn(), vi.fn(), true);
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)); });
     await click("Select model and effort");
     await click("Choose exact model");
-    const options = [...document.querySelectorAll<HTMLButtonElement>('button[role="option"]')]
-      .map((item) => item.textContent ?? "");
-    expect(options.some((item) => item.includes("gpt-5.5"))).toBe(true);
-    expect(options.some((item) => item.includes("gpt-6-sol"))).toBe(true);
-    expect(options.some((item) => item.includes("gpt-image"))).toBe(false);
-    expect(options.some((item) => item.includes("text-embedding"))).toBe(false);
-    expect(document.body.textContent).not.toContain("Loading models…");
+    expect(loadModels).not.toHaveBeenCalled();
+    expect(document.body.textContent).not.toContain("Unverified model");
+    expect(document.body.textContent).not.toContain("Loading models");
+    expect(document.body.textContent).toContain("gpt-6-sol");
   });
 
-  it("shows an instance-declared Codex model list instead of bundled alternatives", async () => {
-    const loadModels = vi.spyOn(agentsApi, "adapterModels").mockResolvedValueOnce([
-      { id: "private-codex", label: "Private Codex" },
-    ]);
-    render(vi.fn(), vi.fn(), true);
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
-    expect(loadModels).toHaveBeenCalledWith("company-1", "codex_local", {
-      environmentId: null,
-      provider: undefined,
-    });
+  it("keeps catalog requests for explicitly bound Codex", async () => {
+    const loadModels = vi.spyOn(agentsApi, "adapterModels").mockResolvedValueOnce([{ id: "private-codex", label: "Private Codex" }]);
+    const bound = { ...agent, runtimeConfig: { aiConnection: { mode: "responsible_user", provider: "9route", method: "api_key" } } } as Agent;
+    render(vi.fn(), vi.fn(), true, { agents: new Map([[bound.id, bound]]) });
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)); });
+    expect(loadModels).toHaveBeenCalled();
     await click("Select model and effort");
     await click("Choose exact model");
-    const choices = [...document.querySelectorAll<HTMLButtonElement>('button[role="option"]')]
-      .map((item) => item.textContent ?? "");
-    expect(choices.some((item) => item.includes("Private Codex"))).toBe(true);
-    expect(choices.some((item) => item.includes("GPT-6 Sol"))).toBe(false);
+    expect(document.body.textContent).toContain("Private Codex");
   });
 
   it("preserves settings when the selected assignee is chosen again", async () => {

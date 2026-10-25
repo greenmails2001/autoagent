@@ -711,6 +711,9 @@ function hasCompleteAdapterConfig(adapterType: string, adapterConfig: unknown) {
   if (adapterType === "openclaw_gateway" || adapterType === "hermes_gateway") {
     return nonEmptyString(adapterConfig.baseUrl) || nonEmptyString(adapterConfig.url);
   }
+  // An explicit empty Codex model selects the runtime default. An untouched
+  // lazy-provisioned config ({}) still needs setup.
+  if (adapterType === "codex_local" && typeof adapterConfig.model === "string") return true;
   return nonEmptyString(adapterConfig.model);
 }
 
@@ -753,6 +756,9 @@ async function assertKnownBuiltInAgentModel(
   const model = typeof adapterConfig.model === "string" ? adapterConfig.model.trim() : "";
   if (!model || !hasCompleteAdapterConfig(adapterType, adapterConfig)) return;
 
+  // The generic Codex list is an OpenAI/static catalog, not runtime discovery.
+  // Probe custom IDs at execution/test time; do not reject them by this list.
+  if (adapterType === "codex_local") return;
   const models = await listAdapterModels(adapterType);
   if (models.length === 0 || models.some((candidate) => candidate.id === model)) return;
 

@@ -34,9 +34,10 @@ vi.mock("@/components/AgentConfigForm", () => ({
   AdapterTypeDropdown: ({ value }: { value: string }) => (
     <div data-testid="adapter-dropdown" data-value={value} />
   ),
-  ModelDropdown: ({ value, onChange }: { value: string; onChange: (v: string) => void }) => (
+  ModelDropdown: ({ value, onChange, models }: { value: string; onChange: (v: string) => void; models: Array<{ id: string }> }) => (
     <input
       data-testid="model-input"
+      data-models={JSON.stringify(models)}
       value={value}
       onChange={(e) => onChange((e.target as HTMLInputElement).value)}
     />
@@ -129,13 +130,14 @@ describe("ConfigureBuiltInAgentModal (PAP-12978)", () => {
     container.remove();
   });
 
-  it("disables submit until a model is chosen, then provisions with adapter + model", async () => {
+  it("provisions a custom canonical model without loading an unverified Codex catalog", async () => {
     provisionMock.mockResolvedValue({ ...makeState(), status: "ready", agentId: "a1" });
     await renderModal();
 
     const submit = findButton("Configure");
     expect(submit).toBeTruthy();
-    expect(submit!.disabled).toBe(true);
+    expect(adapterModelsMock).not.toHaveBeenCalled();
+    expect(submit!.disabled).toBe(false);
 
     const modelInput = document.body.querySelector('[data-testid="model-input"]') as HTMLInputElement;
     expect(modelInput).toBeTruthy();
@@ -159,6 +161,39 @@ describe("ConfigureBuiltInAgentModal (PAP-12978)", () => {
     });
     expect(onConfigured).toHaveBeenCalled();
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("provisions Runtime default without inventing a model", async () => {
+    provisionMock.mockResolvedValue({ ...makeState(), status: "ready", agentId: "a1" });
+    adapterModelsMock.mockResolvedValue([{ id: "gpt-6.1-sol", label: "Unverified" }]);
+    await renderModal();
+    expect(adapterModelsMock).not.toHaveBeenCalled();
+    expect(document.body.querySelector('[data-testid="model-input"]')?.getAttribute("data-models")).toBe("[]");
+    expect(findButton("Configure")!.disabled).toBe(false);
+    flushSync(() => findButton("Configure")!.click());
+    await flushReact();
+    expect(provisionMock).toHaveBeenCalledWith("c1", "briefs", { adapterType: "codex_local", adapterConfig: { model: "" } });
+  });
+
+  it("preserves a saved canonical Codex ID without validating it against the static catalog", async () => {
+    adapterModelsMock.mockResolvedValue([{ id: "gpt-6.1-sol", label: "Unverified" }]);
+    provisionMock.mockResolvedValue({ ...makeState(), status: "ready", agentId: "a1" });
+    await renderModal(makeState({ definition: { ...makeState().definition, defaultAdapterType: "codex_local", defaultAdapterConfig: { model: "vendor/exact" } } }));
+    expect(adapterModelsMock).not.toHaveBeenCalled();
+    expect(document.body.querySelector<HTMLInputElement>('[data-testid="model-input"]')?.value).toBe("vendor/exact");
+    expect(findButton("Configure")!.disabled).toBe(false);
+    flushSync(() => findButton("Configure")!.click());
+    await flushReact();
+    expect(provisionMock).toHaveBeenCalledWith("c1", "briefs", { adapterType: "codex_local", adapterConfig: { model: "vendor/exact" } });
+  });
+
+  it("keeps catalog discovery for an explicitly bound Codex agent", async () => {
+    adapterModelsMock.mockResolvedValue([{ id: "bound/exact", label: "Bound model" }]);
+    const agent = { adapterType: "codex_local", adapterConfig: { model: "bound/exact" }, runtimeConfig: { aiConnection: { mode: "responsible_user", provider: "9route", method: "api_key" } } } as unknown as NonNullable<BuiltInAgentState["agent"]>;
+    await renderModal(makeState({ agent }));
+    expect(adapterModelsMock).toHaveBeenCalled();
+    expect(document.body.querySelector('[data-testid="model-input"]')?.getAttribute("data-models")).toContain("bound/exact");
+    expect(findButton("Configure")!.disabled).toBe(false);
   });
 
   it("prefills a built-in's default adapter and model", async () => {

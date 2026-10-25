@@ -97,14 +97,15 @@ export function ConfigureBuiltInAgentModal({
 
   const setupSupportedInModal = isModelBasedAdapter(adapterType);
 
+  const runtimeDefaultCodex = adapterType === "codex_local" && !state.agent?.runtimeConfig?.aiConnection;
   const { data: fetchedModels } = useQuery({
     queryKey: queryKeys.agents.adapterModels(companyId, adapterType, null),
     queryFn: () => agentsApi.adapterModels(companyId, adapterType, {}),
-    enabled: open && Boolean(companyId) && setupSupportedInModal,
+    enabled: open && Boolean(companyId) && setupSupportedInModal && !runtimeDefaultCodex,
   });
-  const models = fetchedModels ?? [];
+  const models = runtimeDefaultCodex ? [] : fetchedModels ?? [];
 
-  const modelRequired = setupSupportedInModal;
+  const modelRequired = setupSupportedInModal && !runtimeDefaultCodex;
   const normalizedModel = model.trim();
   const modelKnown =
     !normalizedModel ||
@@ -126,7 +127,7 @@ export function ConfigureBuiltInAgentModal({
   const provision = useMutation({
     mutationFn: async () => {
       const adapterConfig: Record<string, unknown> = {};
-      if (model.trim()) adapterConfig.model = model.trim();
+      if (model.trim() || runtimeDefaultCodex) adapterConfig.model = model.trim();
       const result = await builtInAgentsApi.provision(companyId, definition.key, {
         adapterType,
         adapterConfig,
@@ -174,7 +175,7 @@ export function ConfigureBuiltInAgentModal({
             />
           </Field>
 
-          {modelRequired && (
+          {setupSupportedInModal && (
             // ModelDropdown supplies its own "Model" Field label + hint.
             <ModelDropdown
               models={models}
@@ -183,7 +184,7 @@ export function ConfigureBuiltInAgentModal({
               open={modelOpen}
               onOpenChange={setModelOpen}
               allowDefault={adapterType !== "opencode_local"}
-              required
+              required={modelRequired}
               groupByProvider={false}
               preserveOrder={adapterCuratesModelOrder(adapterType)}
               creatable
